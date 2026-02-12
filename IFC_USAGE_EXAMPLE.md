@@ -14,6 +14,7 @@ The project is now set up with web-ifc and Babylon.js. You can load and render I
 ## Important Note About Worker Errors
 
 You may see worker-related errors in the console like:
+
 ```
 worker sent an error! undefined:undefined: undefined
 ```
@@ -38,6 +39,7 @@ console.log(`Loaded ${meshes.length} meshes from IFC file`);
 ## Available Utility Functions
 
 ### `initializeWebIFC()`
+
 Initializes the web-ifc API. This is already called in `main.ts`.
 
 ```typescript
@@ -45,6 +47,7 @@ const ifcAPI = await initializeWebIFC();
 ```
 
 ### `loadIfcFile(ifcAPI, url)`
+
 Loads an IFC file from a URL and returns a model ID.
 
 ```typescript
@@ -52,20 +55,23 @@ const modelID = await loadIfcFile(ifcAPI, "/example.ifc");
 ```
 
 ### `getIfcGeometry(ifcAPI, modelID)`
+
 Extracts all geometry from an IFC model.
 
 ```typescript
 const geometries = getIfcGeometry(ifcAPI, modelID);
 ```
 
-### `createBabylonMeshesFromIfc(ifcAPI, geometries, scene)`
+### `createBabylonMeshesFromIfc(ifcAPI, modelID, geometries, scene)`
+
 Converts IFC geometry to Babylon.js meshes.
 
 ```typescript
-const meshes = createBabylonMeshesFromIfc(ifcAPI, geometries, scene);
+const meshes = createBabylonMeshesFromIfc(ifcAPI, modelID, geometries, scene);
 ```
 
 ### `loadAndRenderIfc(ifcAPI, url, scene)`
+
 All-in-one function that loads an IFC file and creates Babylon meshes.
 
 ```typescript
@@ -82,7 +88,7 @@ if (ifcAPI) {
   try {
     const meshes = await loadAndRenderIfc(ifcAPI, "/example.ifc", scene);
     console.log(`✓ Loaded ${meshes.length} IFC meshes`);
-    
+
     // Optional: Adjust camera to view the loaded model
     scene.activeCamera?.attachControl(canvas, true);
   } catch (error) {
@@ -106,4 +112,3 @@ if (ifcAPI) {
 - Add material/color mapping based on IFC types
 - Implement selection and highlighting of IFC elements
 - Add camera controls to navigate the IFC model
-

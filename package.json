@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@babylonjs/core": "^8.50.5",
+    "@babylonjs/inspector": "^8.50.5",
     "web-ifc": "^0.0.75"
   }
 }
