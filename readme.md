@@ -1,4 +1,4 @@
-# How to Load and Render IFC Files
+# How to Load and Render IFC Files with Babylon.js
 
 ## Overview
 
@@ -7,12 +7,19 @@ This project provides a complete IFC file viewer using web-ifc and Babylon.js. Y
 ## Current Status
 
 ✅ **Babylon.js** - Fully working 3D scene with camera controls
+
 ✅ **web-ifc** - Initialized with proper WASM loading
+
 ✅ **IFC Loader** - Unified loading function for URLs and File objects
+
 ✅ **Metadata Extraction** - Project info, buildings, units, and property sets
+
 ✅ **Material Merging** - Intelligent mesh merging to reduce draw calls
+
 ✅ **Transparency Handling** - Proper rendering of transparent materials
+
 ✅ **Drag-and-Drop** - Drop .ifc files onto the canvas to load them
+
 ✅ **Automatic Cleanup** - Previous models are properly disposed when loading new files
 
 ## How to Load an IFC File
