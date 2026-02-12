@@ -44,6 +44,9 @@ export function loadIfcGeometryAsMeshes(ifcAPI: WebIFC.IfcAPI, modelID: number, 
   const meshes: Mesh[] = [];
   let meshIndex = 0;
 
+  // Map to store meshes by material color for merging
+  const materialMeshMap = new Map<number, Mesh>();
+
   // Stream all meshes and process them immediately
   ifcAPI.StreamAllMeshes(modelID, (flatMesh: WebIFC.FlatMesh) => {
     const placedGeometries = flatMesh.geometries;
@@ -107,28 +110,64 @@ export function loadIfcGeometryAsMeshes(ifcAPI: WebIFC.IfcAPI, modelID: number, 
         }
       }
 
-      // Create a material with proper visibility settings
-      const material = new StandardMaterial(`ifc-material-${meshIndex}-${i}`, scene);
-
-      // Use the color from IFC if available
+      // Calculate color ID for material merging
       const color = placedGeometry.color;
+      let colorId: number;
       if (color) {
-        material.diffuseColor = new Color3(color.x, color.y, color.z);
-        material.alpha = color.w;
+        // Create a unique ID from RGBA values
+        colorId =
+          Math.floor(color.x * 255) +
+          Math.floor(color.y * 255) * 256 +
+          Math.floor(color.z * 255) * 256 * 256 +
+          Math.floor(color.w * 255) * 256 * 256 * 256;
       } else {
-        material.diffuseColor = new Color3(0.8, 0.8, 0.8);
+        colorId = 0; // Default color
       }
 
-      // Ensure mesh is visible
-      material.backFaceCulling = false;
-      mesh.material = material;
-      mesh.isVisible = true;
+      // Check if we already have a mesh with this material
+      if (materialMeshMap.has(colorId)) {
+        const existingMesh = materialMeshMap.get(colorId)!;
 
-      meshes.push(mesh);
+        // Merge the new mesh with the existing one
+        const mergedMesh = Mesh.MergeMeshes([existingMesh, mesh], true, true, undefined, false, true);
+
+        if (mergedMesh) {
+          mergedMesh.name = `ifc-merged-${colorId.toString(16)}`;
+          materialMeshMap.set(colorId, mergedMesh);
+
+          // Remove old mesh from meshes array and add merged one
+          const index = meshes.indexOf(existingMesh);
+          if (index > -1) {
+            meshes.splice(index, 1);
+          }
+          meshes.push(mergedMesh);
+        }
+      } else {
+        // Create a new material for this color
+        const material = new StandardMaterial(`ifc-material-${colorId.toString(16)}`, scene);
+
+        if (color) {
+          material.diffuseColor = new Color3(color.x, color.y, color.z);
+          material.alpha = color.w;
+        } else {
+          material.diffuseColor = new Color3(0.8, 0.8, 0.8);
+        }
+
+        // Ensure mesh is visible
+        material.backFaceCulling = false;
+        mesh.material = material;
+        mesh.isVisible = true;
+
+        // Store this mesh for future merging
+        materialMeshMap.set(colorId, mesh);
+        meshes.push(mesh);
+      }
     }
 
     meshIndex++;
   });
+
+  console.log(`  Merged into ${meshes.length} meshes (from ${meshIndex} original groups)`);
 
   return meshes;
 }

@@ -44,7 +44,7 @@ const createScene = async (): Promise<Scene> => {
   // After creating the scene...
   if (ifcAPI) {
     try {
-      const meshes = await loadAndRenderIfc(ifcAPI, "/example.ifc", scene);
+      const meshes = await loadAndRenderIfc(ifcAPI, "/test.ifc", scene);
       console.log(`✓ Loaded ${meshes.length} IFC meshes`);
 
       // Adjust camera to view the loaded model
