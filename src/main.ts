@@ -1,5 +1,5 @@
 import { Engine, Scene, ArcRotateCamera, HemisphericLight, MeshBuilder, Vector3, Mesh } from "@babylonjs/core";
-import { initializeWebIFC, loadAndRenderIfc, loadAndRenderIfcFromFile } from "./ifcLoader";
+import { initializeWebIFC, loadAndRenderIfc } from "./ifcLoader";
 import { Inspector } from "@babylonjs/inspector";
 
 // Initialize web-ifc API
@@ -199,7 +199,7 @@ if (ifcAPI) {
       }
 
       // Load the new IFC file
-      const meshes = await loadAndRenderIfcFromFile(ifcAPI, file, scene);
+      const meshes = await loadAndRenderIfc(ifcAPI, file, scene);
       currentIfcMeshes = meshes;
 
       // Adjust camera to view the loaded model
