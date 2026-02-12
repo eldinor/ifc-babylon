@@ -1,6 +1,6 @@
-import { Engine, Scene, ArcRotateCamera, HemisphericLight, MeshBuilder, Vector3, Mesh } from "@babylonjs/core";
+import { Engine, Scene, ArcRotateCamera, HemisphericLight, Vector3, Mesh } from "@babylonjs/core";
 import { initializeWebIFC, loadAndRenderIfc } from "./ifcLoader";
-import { Inspector } from "@babylonjs/inspector";
+import { ShowInspector } from "@babylonjs/inspector";
 
 // Initialize web-ifc API
 let ifcAPI: any = null;
@@ -91,7 +91,9 @@ const createScene = async (): Promise<Scene> => {
     }
   }
 
-  Inspector.Show(scene, {});
+  // Inspector.Show(scene, {});
+
+  ShowInspector(scene);
 
   return scene;
 };
