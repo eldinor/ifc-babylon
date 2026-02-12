@@ -1,9 +1,12 @@
-import { Engine, Scene, ArcRotateCamera, HemisphericLight, MeshBuilder, Vector3 } from "@babylonjs/core";
-import { initializeWebIFC, loadAndRenderIfc } from "./ifcLoader";
+import { Engine, Scene, ArcRotateCamera, HemisphericLight, MeshBuilder, Vector3, Mesh } from "@babylonjs/core";
+import { initializeWebIFC, loadAndRenderIfc, loadAndRenderIfcFromFile } from "./ifcLoader";
 import { Inspector } from "@babylonjs/inspector";
 
 // Initialize web-ifc API
 let ifcAPI: any = null;
+
+// Store currently loaded meshes for cleanup when loading new files
+let currentIfcMeshes: Mesh[] = [];
 
 try {
   ifcAPI = await initializeWebIFC();
@@ -44,11 +47,11 @@ const createScene = async (): Promise<Scene> => {
   // After creating the scene...
   if (ifcAPI) {
     try {
-      const meshes = await loadAndRenderIfc(ifcAPI, "/test.ifc", scene);
-      console.log(`✓ Loaded ${meshes.length} IFC meshes`);
+      currentIfcMeshes = await loadAndRenderIfc(ifcAPI, "/test.ifc", scene);
+      console.log(`✓ Loaded ${currentIfcMeshes.length} IFC meshes`);
 
       // Adjust camera to view the loaded model
-      if (meshes.length > 0) {
+      if (currentIfcMeshes.length > 0) {
         // Calculate bounding box of all meshes
         let minX = Infinity,
           minY = Infinity,
@@ -57,7 +60,7 @@ const createScene = async (): Promise<Scene> => {
           maxY = -Infinity,
           maxZ = -Infinity;
 
-        meshes.forEach((mesh) => {
+        currentIfcMeshes.forEach((mesh) => {
           const boundingInfo = mesh.getBoundingInfo();
           const min = boundingInfo.boundingBox.minimumWorld;
           const max = boundingInfo.boundingBox.maximumWorld;
@@ -105,3 +108,112 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
   engine.resize();
 });
+
+// Add drag-and-drop functionality for IFC files
+if (ifcAPI) {
+  // Helper function to adjust camera to view meshes
+  const adjustCameraToMeshes = (meshes: Mesh[], camera: ArcRotateCamera) => {
+    if (meshes.length === 0) return;
+
+    // Calculate bounding box of all meshes
+    let minX = Infinity,
+      minY = Infinity,
+      minZ = Infinity;
+    let maxX = -Infinity,
+      maxY = -Infinity,
+      maxZ = -Infinity;
+
+    meshes.forEach((mesh) => {
+      const boundingInfo = mesh.getBoundingInfo();
+      const min = boundingInfo.boundingBox.minimumWorld;
+      const max = boundingInfo.boundingBox.maximumWorld;
+
+      minX = Math.min(minX, min.x);
+      minY = Math.min(minY, min.y);
+      minZ = Math.min(minZ, min.z);
+      maxX = Math.max(maxX, max.x);
+      maxY = Math.max(maxY, max.y);
+      maxZ = Math.max(maxZ, max.z);
+    });
+
+    // Calculate center and size
+    const center = new Vector3((minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2);
+    const size = Math.max(maxX - minX, maxY - minY, maxZ - minZ);
+
+    console.log(`  Model center:`, center);
+    console.log(`  Model size:`, size);
+
+    // Position camera to view the entire model
+    camera.target = center;
+    camera.radius = size * 2;
+    camera.alpha = -Math.PI / 4;
+    camera.beta = Math.PI / 3;
+  };
+
+  // Prevent default drag behavior
+  canvas.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    canvas.style.opacity = "0.5";
+  });
+
+  canvas.addEventListener("dragleave", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    canvas.style.opacity = "1";
+  });
+
+  // Handle file drop
+  canvas.addEventListener("drop", async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    canvas.style.opacity = "1";
+
+    const files = e.dataTransfer?.files;
+    if (!files || files.length === 0) return;
+
+    const file = files[0];
+
+    // Check if it's an IFC file
+    if (!file.name.toLowerCase().endsWith(".ifc")) {
+      console.error("Please drop an IFC file (.ifc extension)");
+      alert("Please drop an IFC file (.ifc extension)");
+      return;
+    }
+
+    try {
+      console.log(`\n📦 Loading dropped file: ${file.name}`);
+
+      // Dispose of previously loaded meshes and their materials
+      if (currentIfcMeshes.length > 0) {
+        console.log(`  Removing ${currentIfcMeshes.length} previous meshes and their materials...`);
+        currentIfcMeshes.forEach((mesh) => {
+          // Dispose material first
+          if (mesh.material) {
+            mesh.material.dispose();
+          }
+          // Then dispose mesh
+          mesh.dispose();
+        });
+        currentIfcMeshes = [];
+      }
+
+      // Load the new IFC file
+      const meshes = await loadAndRenderIfcFromFile(ifcAPI, file, scene);
+      currentIfcMeshes = meshes;
+
+      // Adjust camera to view the loaded model
+      const camera = scene.activeCamera as ArcRotateCamera;
+      if (camera) {
+        adjustCameraToMeshes(meshes, camera);
+      }
+
+      console.log(`✅ Successfully loaded ${file.name}\n`);
+    } catch (error) {
+      console.error("Failed to load IFC file:", error);
+      alert(`Failed to load IFC file: ${error}`);
+    }
+  });
+
+  console.log("\n💡 Tip: You can drag and drop .ifc files onto the canvas to load them!\n");
+}

@@ -28,9 +28,27 @@ export async function loadIfcFile(ifcAPI: WebIFC.IfcAPI, url: string): Promise<n
   // Open the model
   const modelID = ifcAPI.OpenModel(uint8Array);
 
-  // Apply coordinate system transformation (IFC uses different coordinate system than Babylon.js)
-  // This flips Y and Z axes to match Babylon.js coordinate system
-  const coordinateTransform = [1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1];
+  // Don't apply coordinate transformation - use identity matrix
+  // IFC coordinate system should work directly with Babylon.js
+  const coordinateTransform = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  ifcAPI.SetGeometryTransformation(modelID, coordinateTransform);
+
+  return modelID;
+}
+
+/**
+ * Load an IFC file from a File object (e.g., from drag-and-drop)
+ */
+export async function loadIfcFileFromFile(ifcAPI: WebIFC.IfcAPI, file: File): Promise<number> {
+  const data = await file.arrayBuffer();
+  const uint8Array = new Uint8Array(data);
+
+  // Open the model
+  const modelID = ifcAPI.OpenModel(uint8Array);
+
+  // Don't apply coordinate transformation - use identity matrix
+  // IFC coordinate system should work directly with Babylon.js
+  const coordinateTransform = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
   ifcAPI.SetGeometryTransformation(modelID, coordinateTransform);
 
   return modelID;
@@ -128,7 +146,12 @@ export function loadIfcGeometryAsMeshes(ifcAPI: WebIFC.IfcAPI, modelID: number, 
       if (materialMeshMap.has(colorId)) {
         const existingMesh = materialMeshMap.get(colorId)!;
 
+        // Store references to materials that will be disposed
+        const existingMaterial = existingMesh.material;
+        const newMaterial = mesh.material;
+
         // Merge the new mesh with the existing one
+        // disposeSource=true will dispose the source meshes but NOT their materials
         const mergedMesh = Mesh.MergeMeshes([existingMesh, mesh], true, true, undefined, false, true);
 
         if (mergedMesh) {
@@ -141,6 +164,14 @@ export function loadIfcGeometryAsMeshes(ifcAPI: WebIFC.IfcAPI, modelID: number, 
             meshes.splice(index, 1);
           }
           meshes.push(mergedMesh);
+
+          // Dispose the unused materials from the merged meshes
+          if (existingMaterial && existingMaterial !== mergedMesh.material) {
+            existingMaterial.dispose();
+          }
+          if (newMaterial && newMaterial !== mergedMesh.material) {
+            newMaterial.dispose();
+          }
         }
       } else {
         // Create a new material for this color
@@ -178,6 +209,32 @@ export function loadIfcGeometryAsMeshes(ifcAPI: WebIFC.IfcAPI, modelID: number, 
 export async function loadAndRenderIfc(ifcAPI: WebIFC.IfcAPI, url: string, scene: Scene): Promise<Mesh[]> {
   // Load the IFC file
   const modelID = await loadIfcFile(ifcAPI, url);
+
+  // Load geometry and create meshes (must be done in one step)
+  const meshes = loadIfcGeometryAsMeshes(ifcAPI, modelID, scene);
+
+  console.log(`✓ Loaded IFC file with ${meshes.length} meshes`);
+
+  // Log bounding info for debugging
+  if (meshes.length > 0) {
+    const firstMesh = meshes[0];
+    const boundingInfo = firstMesh.getBoundingInfo();
+    console.log(`  First mesh position:`, firstMesh.position);
+    console.log(`  First mesh bounding box:`, boundingInfo.boundingBox);
+    console.log(`  Vertices in first mesh:`, firstMesh.getTotalVertices());
+  }
+
+  return meshes;
+}
+
+/**
+ * Load and render an IFC file from a File object (e.g., from drag-and-drop)
+ */
+export async function loadAndRenderIfcFromFile(ifcAPI: WebIFC.IfcAPI, file: File, scene: Scene): Promise<Mesh[]> {
+  console.log(`Loading IFC file: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`);
+
+  // Load the IFC file
+  const modelID = await loadIfcFileFromFile(ifcAPI, file);
 
   // Load geometry and create meshes (must be done in one step)
   const meshes = loadIfcGeometryAsMeshes(ifcAPI, modelID, scene);
