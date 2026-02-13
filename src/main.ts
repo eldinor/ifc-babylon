@@ -24,6 +24,45 @@ const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
 // Create the Babylon.js engine
 const engine = new Engine(canvas, true);
 
+// Helper function to adjust camera to view meshes
+const adjustCameraToMeshes = (meshes: Mesh[], camera: ArcRotateCamera) => {
+  if (meshes.length === 0) return;
+
+  // Calculate bounding box of all meshes
+  let minX = Infinity,
+    minY = Infinity,
+    minZ = Infinity;
+  let maxX = -Infinity,
+    maxY = -Infinity,
+    maxZ = -Infinity;
+
+  meshes.forEach((mesh) => {
+    const boundingInfo = mesh.getBoundingInfo();
+    const min = boundingInfo.boundingBox.minimumWorld;
+    const max = boundingInfo.boundingBox.maximumWorld;
+
+    minX = Math.min(minX, min.x);
+    minY = Math.min(minY, min.y);
+    minZ = Math.min(minZ, min.z);
+    maxX = Math.max(maxX, max.x);
+    maxY = Math.max(maxY, max.y);
+    maxZ = Math.max(maxZ, max.z);
+  });
+
+  // Calculate center and size
+  const center = new Vector3((minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2);
+  const size = Math.max(maxX - minX, maxY - minY, maxZ - minZ);
+
+  console.log(`  Model center:`, center);
+  console.log(`  Model size:`, size);
+
+  // Position camera to view the entire model
+  camera.target = center;
+  camera.radius = size * 2;
+  camera.alpha = -Math.PI / 4;
+  camera.beta = Math.PI / 3;
+};
+
 // Create the scene
 const createScene = async (): Promise<Scene> => {
   // Create a basic scene
@@ -37,13 +76,6 @@ const createScene = async (): Promise<Scene> => {
   const light = new HemisphericLight("light", new Vector3(0, 1, 0), scene);
   light.intensity = 0.7;
 
-  // Create a sphere
-  //  const sphere = MeshBuilder.CreateSphere("sphere", { diameter: 2 }, scene);
-  // sphere.position.y = 1;
-
-  // Create a ground
-  //  MeshBuilder.CreateGround("ground", { width: 10, height: 10 }, scene);
-
   // After creating the scene...
   if (ifcAPI) {
     try {
@@ -52,46 +84,12 @@ const createScene = async (): Promise<Scene> => {
 
       // Adjust camera to view the loaded model
       if (currentIfcMeshes.length > 0) {
-        // Calculate bounding box of all meshes
-        let minX = Infinity,
-          minY = Infinity,
-          minZ = Infinity;
-        let maxX = -Infinity,
-          maxY = -Infinity,
-          maxZ = -Infinity;
-
-        currentIfcMeshes.forEach((mesh) => {
-          const boundingInfo = mesh.getBoundingInfo();
-          const min = boundingInfo.boundingBox.minimumWorld;
-          const max = boundingInfo.boundingBox.maximumWorld;
-
-          minX = Math.min(minX, min.x);
-          minY = Math.min(minY, min.y);
-          minZ = Math.min(minZ, min.z);
-          maxX = Math.max(maxX, max.x);
-          maxY = Math.max(maxY, max.y);
-          maxZ = Math.max(maxZ, max.z);
-        });
-
-        // Calculate center and size
-        const center = new Vector3((minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2);
-        const size = Math.max(maxX - minX, maxY - minY, maxZ - minZ);
-
-        console.log(`  Model center:`, center);
-        console.log(`  Model size:`, size);
-
-        // Position camera to view the entire model
-        camera.target = center;
-        camera.radius = size * 2;
-        camera.alpha = -Math.PI / 4;
-        camera.beta = Math.PI / 3;
+        adjustCameraToMeshes(currentIfcMeshes, camera);
       }
     } catch (error) {
       console.error("Failed to load IFC file:", error);
     }
   }
-
-  // Inspector.Show(scene, {});
 
   ShowInspector(scene);
 
@@ -113,45 +111,6 @@ window.addEventListener("resize", () => {
 
 // Add drag-and-drop functionality for IFC files
 if (ifcAPI) {
-  // Helper function to adjust camera to view meshes
-  const adjustCameraToMeshes = (meshes: Mesh[], camera: ArcRotateCamera) => {
-    if (meshes.length === 0) return;
-
-    // Calculate bounding box of all meshes
-    let minX = Infinity,
-      minY = Infinity,
-      minZ = Infinity;
-    let maxX = -Infinity,
-      maxY = -Infinity,
-      maxZ = -Infinity;
-
-    meshes.forEach((mesh) => {
-      const boundingInfo = mesh.getBoundingInfo();
-      const min = boundingInfo.boundingBox.minimumWorld;
-      const max = boundingInfo.boundingBox.maximumWorld;
-
-      minX = Math.min(minX, min.x);
-      minY = Math.min(minY, min.y);
-      minZ = Math.min(minZ, min.z);
-      maxX = Math.max(maxX, max.x);
-      maxY = Math.max(maxY, max.y);
-      maxZ = Math.max(maxZ, max.z);
-    });
-
-    // Calculate center and size
-    const center = new Vector3((minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2);
-    const size = Math.max(maxX - minX, maxY - minY, maxZ - minZ);
-
-    console.log(`  Model center:`, center);
-    console.log(`  Model size:`, size);
-
-    // Position camera to view the entire model
-    camera.target = center;
-    camera.radius = size * 2;
-    camera.alpha = -Math.PI / 4;
-    camera.beta = Math.PI / 3;
-  };
-
   // Prevent default drag behavior
   canvas.addEventListener("dragover", (e) => {
     e.preventDefault();
@@ -189,14 +148,18 @@ if (ifcAPI) {
       // Dispose of previously loaded meshes and their materials
       if (currentIfcMeshes.length > 0) {
         console.log(`  Removing ${currentIfcMeshes.length} previous meshes and their materials...`);
-        currentIfcMeshes.forEach((mesh) => {
+        while (currentIfcMeshes.length > 0) {
+          const mesh = currentIfcMeshes.pop();
+          if (!mesh) {
+            continue;
+          }
           // Dispose material first
           if (mesh.material) {
             mesh.material.dispose();
           }
           // Then dispose mesh
           mesh.dispose();
-        });
+        }
         currentIfcMeshes = [];
       }
 
