@@ -216,6 +216,7 @@ export async function loadAndRenderIfc(ifcAPI: WebIFC.IfcAPI, source: string | F
   console.log(`  Organization: ${metadata.organization || "N/A"}`);
   // console.log(`  Schema: ${metadata.schema || "N/A"}`);
 
+  /*
   // Get and display building information
   console.log("\n🏢 Building Information:");
   const buildings = await getBuildingInfo(ifcAPI, modelID);
@@ -231,7 +232,7 @@ export async function loadAndRenderIfc(ifcAPI: WebIFC.IfcAPI, source: string | F
   } else {
     console.log(`  No building information found`);
   }
-
+*/
   // Load geometry and create meshes (must be done in one step)
   const meshes = loadIfcGeometryAsMeshes(ifcAPI, modelID, scene);
 
