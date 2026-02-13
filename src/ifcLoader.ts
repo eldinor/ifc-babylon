@@ -1,5 +1,6 @@
 import * as WebIFC from "web-ifc";
 import { Scene, Mesh, VertexData, StandardMaterial, Color3, Matrix } from "@babylonjs/core";
+import { extractIfcMetadata, getBuildingInfo } from "./ifcMetadata";
 /**
  * Initialize the web-ifc API
  * This should be called once at application startup
@@ -28,96 +29,6 @@ async function loadIfcFile(ifcAPI: WebIFC.IfcAPI, source: string | File): Promis
 
   const modelID = ifcAPI.OpenModel(new Uint8Array(data));
   return modelID;
-}
-
-/**
- * Get building information from IFC file (internal helper)
- */
-async function getBuildingInfo(ifcAPI: WebIFC.IfcAPI, modelID: number) {
-  const buildings = ifcAPI.GetLineIDsWithType(modelID, WebIFC.IFCBUILDING);
-  const buildingList = [];
-
-  for (let i = 0; i < buildings.size(); i++) {
-    const buildingID = buildings.get(i);
-    const building = await ifcAPI.GetLine(modelID, buildingID);
-
-    buildingList.push({
-      id: buildingID,
-      name: building.Name?.value || "",
-      longName: building.LongName?.value || "",
-      description: building.Description?.value || "",
-      elevation: building.ElevationOfRefHeight?.value,
-    });
-  }
-
-  return buildingList;
-}
-
-/**
- * Extract metadata from IFC file (internal helper)
- */
-function extractIfcMetadata(ifcAPI: WebIFC.IfcAPI, modelID: number): any {
-  const metadata: any = {
-    projectName: null,
-    projectDescription: null,
-    software: null,
-    author: null,
-    organization: null,
-  };
-
-  try {
-    // Get all lines of type IFCPROJECT
-    const projects = ifcAPI.GetLineIDsWithType(modelID, WebIFC.IFCPROJECT);
-    if (projects.size() > 0) {
-      const projectID = projects.get(0);
-      const project = ifcAPI.GetLine(modelID, projectID);
-
-      if (project) {
-        metadata.projectName = project.Name?.value || project.LongName?.value || null;
-        metadata.projectDescription = project.Description?.value || null;
-      }
-    }
-
-    // Get IFCAPPLICATION for software info
-    const applications = ifcAPI.GetLineIDsWithType(modelID, WebIFC.IFCAPPLICATION);
-    if (applications.size() > 0) {
-      const appID = applications.get(0);
-      const app = ifcAPI.GetLine(modelID, appID);
-
-      if (app) {
-        metadata.software = app.ApplicationFullName?.value || app.ApplicationIdentifier?.value || null;
-      }
-    }
-
-    // Get IFCPERSON for author info
-    const persons = ifcAPI.GetLineIDsWithType(modelID, WebIFC.IFCPERSON);
-    if (persons.size() > 0) {
-      const personID = persons.get(0);
-      const person = ifcAPI.GetLine(modelID, personID);
-
-      if (person) {
-        const givenName = person.GivenName?.value || "";
-        const familyName = person.FamilyName?.value || "";
-        const id = person.Identification?.value || "";
-        metadata.author = [givenName, familyName, id].filter(Boolean).join(" ") || null;
-      }
-    }
-
-    // Get IFCORGANIZATION
-    const organizations = ifcAPI.GetLineIDsWithType(modelID, WebIFC.IFCORGANIZATION);
-    if (organizations.size() > 0) {
-      const orgID = organizations.get(0);
-      const org = ifcAPI.GetLine(modelID, orgID);
-
-      if (org) {
-        metadata.organization = org.Name?.value || null;
-      }
-    }
-  } catch (error) {
-    console.warn("Error extracting IFC metadata:", error);
-  }
-
-  return metadata;
 }
 
 /**
