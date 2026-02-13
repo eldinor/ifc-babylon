@@ -1,15 +1,11 @@
 import * as WebIFC from "web-ifc";
 import { Scene, Mesh, VertexData, StandardMaterial, Color3, Matrix } from "@babylonjs/core";
-
 /**
  * Initialize the web-ifc API
  * This should be called once at application startup
  */
 export async function initializeWebIFC(): Promise<WebIFC.IfcAPI> {
   const ifcAPI = new WebIFC.IfcAPI();
-
-  // Set the path to WASM files (they're in the public directory)
-  // ifcAPI.SetWasmPath("/");
 
   // Initialize the API
   await ifcAPI.Init();
@@ -18,39 +14,25 @@ export async function initializeWebIFC(): Promise<WebIFC.IfcAPI> {
 }
 
 /**
- * Load an IFC file from a URL
+ * Load an IFC file from a URL or from a File object (e.g., from drag-and-drop)
  */
-export async function loadIfcFile(ifcAPI: WebIFC.IfcAPI, url: string): Promise<number> {
-  const response = await fetch(url);
-  const data = await response.arrayBuffer();
-  const uint8Array = new Uint8Array(data);
-
-  // Open the model
-  const modelID = ifcAPI.OpenModel(uint8Array);
-
-  // Don't apply coordinate transformation - use identity matrix
-  // IFC coordinate system should work directly with Babylon.js
-  const coordinateTransform = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
-  ifcAPI.SetGeometryTransformation(modelID, coordinateTransform);
-
-  return modelID;
+export async function loadIfcFile(ifcAPI: WebIFC.IfcAPI, source: string | File): Promise<number> {
+  // Accept either a URL string or a File object
+  if (typeof source === "string") {
+    const response = await fetch(source);
+    const data = await response.arrayBuffer();
+    return openIfcBytes(ifcAPI, new Uint8Array(data));
+  } else {
+    const data = await source.arrayBuffer();
+    return openIfcBytes(ifcAPI, new Uint8Array(data));
+  }
 }
 
 /**
- * Load an IFC file from a File object (e.g., from drag-and-drop)
+ * Load an IFC file from Uint8Array)
  */
-export async function loadIfcFileFromFile(ifcAPI: WebIFC.IfcAPI, file: File): Promise<number> {
-  const data = await file.arrayBuffer();
-  const uint8Array = new Uint8Array(data);
-
-  // Open the model
-  const modelID = ifcAPI.OpenModel(uint8Array);
-
-  // Don't apply coordinate transformation - use identity matrix
-  // IFC coordinate system should work directly with Babylon.js
-  const coordinateTransform = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
-  ifcAPI.SetGeometryTransformation(modelID, coordinateTransform);
-
+async function openIfcBytes(ifcAPI: WebIFC.IfcAPI, bytes: Uint8Array): Promise<number> {
+  const modelID = ifcAPI.OpenModel(bytes);
   return modelID;
 }
 
@@ -172,6 +154,7 @@ export async function getAllPropertySets(ifcAPI: WebIFC.IfcAPI, modelID: number)
 /**
  * Extract metadata from IFC file
  */
+
 export function extractIfcMetadata(ifcAPI: WebIFC.IfcAPI, modelID: number): any {
   const metadata: any = {
     projectName: null,
@@ -417,7 +400,7 @@ export async function loadAndRenderIfc(ifcAPI: WebIFC.IfcAPI, source: string | F
   } else {
     // Load from File object
     console.log(`Loading IFC file: ${source.name} (${(source.size / 1024 / 1024).toFixed(2)} MB)`);
-    modelID = await loadIfcFileFromFile(ifcAPI, source);
+    modelID = await loadIfcFile(ifcAPI, source);
   }
 
   // Extract and display metadata

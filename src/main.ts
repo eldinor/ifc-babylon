@@ -216,6 +216,4 @@ if (ifcAPI) {
       alert(`Failed to load IFC file: ${error}`);
     }
   });
-
-  console.log("\n💡 Tip: You can drag and drop .ifc files onto the canvas to load them!\n");
 }
