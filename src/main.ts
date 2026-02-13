@@ -1,5 +1,5 @@
 import { Engine, Scene, ArcRotateCamera, HemisphericLight, Vector3, Mesh } from "@babylonjs/core";
-import { initializeWebIFC, loadAndRenderIfc } from "./ifcLoader";
+import { initializeWebIFC, loadAndRenderIfc } from "./dstest";
 import { ShowInspector } from "@babylonjs/inspector";
 
 // Initialize web-ifc API
@@ -11,7 +11,7 @@ let currentIfcMeshes: Mesh[] = [];
 try {
   ifcAPI = await initializeWebIFC();
   console.log("✓ web-ifc initialized successfully!");
-  console.log("  You can now load IFC files using the ifcLoader utilities");
+  console.log("  You can now load IFC files using the dstest utilities");
 } catch (error) {
   console.error("⚠ Failed to initialize web-ifc:", error);
   console.log("  The Babylon.js scene will still work, but IFC loading will not be available");
@@ -79,7 +79,8 @@ const createScene = async (): Promise<Scene> => {
   // After creating the scene...
   if (ifcAPI) {
     try {
-      currentIfcMeshes = await loadAndRenderIfc(ifcAPI, "/test.ifc", scene);
+      const { meshes: initialMeshes } = await loadAndRenderIfc(ifcAPI, "/test.ifc", scene);
+      currentIfcMeshes = initialMeshes;
       console.log(`✓ Loaded ${currentIfcMeshes.length} IFC meshes`);
 
       // Adjust camera to view the loaded model
@@ -164,7 +165,7 @@ if (ifcAPI) {
       }
 
       // Load the new IFC file
-      const meshes = await loadAndRenderIfc(ifcAPI, file, scene);
+      const { meshes } = await loadAndRenderIfc(ifcAPI, file, scene);
       currentIfcMeshes = meshes;
 
       // Adjust camera to view the loaded model

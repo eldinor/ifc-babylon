@@ -199,7 +199,7 @@ function loadIfcGeometryAsMeshes(
         const indices = ifcAPI.GetIndexArray(geometry.GetIndexData(), geometry.GetIndexDataSize());
 
         if (verts.length === 0 || indices.length === 0) {
-          geometry.delete();
+          (geometry as any)?.delete?.();
           continue;
         }
 
@@ -285,18 +285,14 @@ function loadIfcGeometryAsMeshes(
         }
 
         // Clean up WASM memory
-        geometry.delete();
+        (geometry as any)?.delete?.();
       } catch (error) {
         console.error(`Error processing geometry:`, error);
-        geometry.delete();
+        (geometry as any)?.delete?.();
       }
     }
 
-    // Batch cleanup to prevent memory buildup
-    if (stats.originalMeshCount % (options.batchSize || 100) === 0) {
-      flatMesh.delete();
-    }
-  });
+      });
 
   // Merge meshes by material if requested
   if (options.mergeMeshes && materialMeshMap.size > 0) {
