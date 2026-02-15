@@ -1,8 +1,10 @@
 import { defineConfig } from "vite";
 import { viteStaticCopy } from "vite-plugin-static-copy";
+import wasm from "vite-plugin-wasm";
 
 export default defineConfig({
   plugins: [
+    wasm(),
     viteStaticCopy({
       targets: [
         {
