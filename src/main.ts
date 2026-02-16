@@ -1,21 +1,25 @@
-import { Engine, Scene, ArcRotateCamera, HemisphericLight, Vector3, Mesh } from "@babylonjs/core";
-import { initializeWebIFC, loadAndRenderIfc } from "./ifcLoader";
+import { initializeWebIFC, loadAndRenderIfc, disposeIfcScene, cleanupIfcModel } from "./ifcLoader";
+import { Engine, Scene, ArcRotateCamera, HemisphericLight, Vector3, AbstractMesh, Color3 } from "@babylonjs/core";
 import { ShowInspector } from "@babylonjs/inspector";
 
 // Initialize web-ifc API
 let ifcAPI: any = null;
 
-// Store currently loaded meshes for cleanup when loading new files
-let currentIfcMeshes: Mesh[] = [];
+// Store currently loaded meshes and model ID for cleanup when loading new files
+let currentIfcMeshes: AbstractMesh[] = [];
+let currentModelID: number | null = null;
+
+// Store currently highlighted mesh
+let currentHighlightedMesh: AbstractMesh | null = null;
 
 try {
-  ifcAPI = await initializeWebIFC();
+  // Set WASM path to "./" so web-ifc can find web-ifc.wasm in production
+  // In dev, Vite serves from node_modules; in prod, vite-plugin-static-copy puts it at dist root
+  ifcAPI = await initializeWebIFC("./");
   console.log("✓ web-ifc initialized successfully!");
-  console.log("  You can now load IFC files using the ifcLoader utilities");
 } catch (error) {
   console.error("⚠ Failed to initialize web-ifc:", error);
   console.log("  The Babylon.js scene will still work, but IFC loading will not be available");
-  console.log("  This is likely due to web worker limitations in the development environment");
 }
 
 // Get the canvas element
@@ -24,8 +28,200 @@ const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
 // Create the Babylon.js engine
 const engine = new Engine(canvas, true);
 
+// Helper function to show properties panel
+// @ts-ignore: Kept for future use
+const showPropertiesPanel = (element: any) => {
+  // Get or create properties panel
+  let panel = document.getElementById("properties-panel");
+  if (!panel) {
+    panel = document.createElement("div");
+    panel.id = "properties-panel";
+    panel.style.cssText = `
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      width: 400px;
+      max-height: 80vh;
+      background: rgba(0, 0, 0, 0.85);
+      color: white;
+      padding: 20px;
+      border-radius: 8px;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      overflow-y: auto;
+      z-index: 1000;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+    `;
+    document.body.appendChild(panel);
+
+    // Add close button
+    const closeBtn = document.createElement("button");
+    closeBtn.textContent = "✕";
+    closeBtn.style.cssText = `
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: rgba(255, 255, 255, 0.2);
+      border: none;
+      color: white;
+      width: 24px;
+      height: 24px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+    `;
+    closeBtn.onclick = () => {
+      panel!.style.display = "none";
+    };
+    panel.appendChild(closeBtn);
+  }
+
+  panel.style.display = "block";
+
+  // Format the element data
+  const formatValue = (value: any, indent = 0): string => {
+    const indentStr = "  ".repeat(indent);
+    if (value === null || value === undefined) {
+      return `${indentStr}<span style="color: #888">null</span>`;
+    }
+    if (typeof value === "object") {
+      if (Array.isArray(value)) {
+        if (value.length === 0) return `${indentStr}[]`;
+        return `${indentStr}[\n` + value.map((v) => formatValue(v, indent + 1)).join(",\n") + `\n${indentStr}]`;
+      }
+      const entries = Object.entries(value);
+      if (entries.length === 0) return `${indentStr}{}`;
+      return (
+        `${indentStr}{\n` +
+        entries
+          .map(([k, v]) => `${indentStr}  <span style="color: #4EC9B0">${k}</span>: ${formatValue(v, 0)}`)
+          .join(",\n") +
+        `\n${indentStr}}`
+      );
+    }
+    if (typeof value === "string") {
+      return `${indentStr}<span style="color: #CE9178">"${value}"</span>`;
+    }
+    if (typeof value === "number") {
+      return `${indentStr}<span style="color: #B5CEA8">${value}</span>`;
+    }
+    if (typeof value === "boolean") {
+      return `${indentStr}<span style="color: #569CD6">${value}</span>`;
+    }
+    return `${indentStr}${value}`;
+  };
+
+  // Build HTML content
+  let html = `<div style="margin-bottom: 30px;">`;
+  html += `<h3 style="margin: 0 0 15px 0; color: #4EC9B0; font-size: 16px;">IFC Element Properties</h3>`;
+  html += `<div style="line-height: 1.6;">`;
+  html += formatValue(element);
+  html += `</div>`;
+  html += `</div>`;
+
+  panel.innerHTML = html;
+
+  // Re-add close button
+  const closeBtn = document.createElement("button");
+  closeBtn.textContent = "✕";
+  closeBtn.style.cssText = `
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
+    color: white;
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 16px;
+  `;
+  closeBtn.onclick = () => {
+    panel!.style.display = "none";
+  };
+  panel.appendChild(closeBtn);
+};
+
+// Setup picking handler for IFC elements
+const setupPickingHandler = (scene: Scene, ifcAPI: any) => {
+  scene.onPointerDown = (evt, pickResult) => {
+    // Only handle left click
+    if (evt.button !== 0) return;
+
+    if (pickResult.hit && pickResult.pickedMesh) {
+      const pickedMesh = pickResult.pickedMesh;
+      const metadata = pickedMesh.metadata;
+
+      if (metadata && metadata.expressID !== undefined && metadata.modelID !== undefined) {
+        const expressID = metadata.expressID;
+        const modelID = metadata.modelID;
+
+        console.log(`\n🎯 Picked IFC Element:`);
+        console.log(`  Mesh: ${pickedMesh.name}`);
+        console.log(`  Express ID: ${expressID}`);
+        console.log(`  Model ID: ${modelID}`);
+
+        try {
+          // Fetch FULL element data — includes ALL properties
+          const element = ifcAPI.GetLine(modelID, expressID, true);
+          // Get the IFC type name (e.g., "IFCWALL", "IFCDOOR", etc.)
+          const typeName = ifcAPI.GetNameFromTypeCode(element.type);
+          console.log(`  Element type name:`, typeName);
+          console.log(`  Element data:`, element);
+          console.log(`  Element type:`, element.type);
+          console.log(`  Element name:`, element.Name.value);
+
+          // Remove previous highlight
+          if (currentHighlightedMesh) {
+            currentHighlightedMesh.renderOverlay = false;
+          }
+
+          // Add teal overlay to picked mesh
+          pickedMesh.renderOverlay = true;
+          pickedMesh.overlayColor = Color3.Teal();
+          pickedMesh.overlayAlpha = 0.3;
+          currentHighlightedMesh = pickedMesh;
+
+          // Update upper text with element info
+          const upperText = document.getElementById("upper-text");
+          if (upperText) {
+            const elementName = element.Name?.value || "Unnamed";
+            upperText.innerHTML = `<strong>${typeName}</strong> | ${elementName} | ID: ${expressID}`;
+            upperText.style.display = "block";
+          }
+
+          // Show properties panel
+          //   showPropertiesPanel(element);
+        } catch (error) {
+          console.error(`  Failed to get element data:`, error);
+        }
+      } else {
+        // Clicked on mesh without IFC metadata - hide upper text and remove highlight
+        hideUpperTextAndClearHighlight();
+      }
+    } else {
+      // Clicked outside the model - hide upper text and remove highlight
+      hideUpperTextAndClearHighlight();
+    }
+  };
+};
+
+// Helper function to hide upper text and clear highlight
+const hideUpperTextAndClearHighlight = () => {
+  const upperText = document.getElementById("upper-text");
+  if (upperText) {
+    upperText.style.display = "none";
+  }
+
+  if (currentHighlightedMesh) {
+    currentHighlightedMesh.renderOverlay = false;
+    currentHighlightedMesh = null;
+  }
+};
+
 // Helper function to adjust camera to view meshes
-const adjustCameraToMeshes = (meshes: Mesh[], camera: ArcRotateCamera) => {
+const adjustCameraToMeshes = (meshes: AbstractMesh[], camera: ArcRotateCamera) => {
   if (meshes.length === 0) return;
 
   // Calculate bounding box of all meshes
@@ -79,8 +275,10 @@ const createScene = async (): Promise<Scene> => {
   // After creating the scene...
   if (ifcAPI) {
     try {
-      currentIfcMeshes = await loadAndRenderIfc(ifcAPI, "/test.ifc", scene);
-      console.log(`✓ Loaded ${currentIfcMeshes.length} IFC meshes`);
+      const { meshes: initialMeshes, modelID } = await loadAndRenderIfc(ifcAPI, "/test.ifc", scene);
+      currentIfcMeshes = initialMeshes;
+      currentModelID = modelID;
+      console.log(`✓ Loaded ${currentIfcMeshes.length} IFC meshes (Model ID: ${modelID})`);
 
       // Adjust camera to view the loaded model
       if (currentIfcMeshes.length > 0) {
@@ -92,6 +290,11 @@ const createScene = async (): Promise<Scene> => {
   }
 
   ShowInspector(scene);
+
+  // Setup picking handler for IFC elements
+  if (ifcAPI) {
+    setupPickingHandler(scene, ifcAPI);
+  }
 
   return scene;
 };
@@ -145,27 +348,29 @@ if (ifcAPI) {
     try {
       console.log(`\n📦 Loading dropped file: ${file.name}`);
 
-      // Dispose of previously loaded meshes and their materials
-      if (currentIfcMeshes.length > 0) {
-        console.log(`  Removing ${currentIfcMeshes.length} previous meshes and their materials...`);
-        while (currentIfcMeshes.length > 0) {
-          const mesh = currentIfcMeshes.pop();
-          if (!mesh) {
-            continue;
-          }
-          // Dispose material first
-          if (mesh.material) {
-            mesh.material.dispose();
-          }
-          // Then dispose mesh
-          mesh.dispose();
+      // Dispose of previously loaded model
+      if (currentIfcMeshes.length > 0 || currentModelID !== null) {
+        console.log(`  Cleaning up previous model...`);
+
+        // Dispose all meshes, materials, and the ifc-root node
+        disposeIfcScene(scene);
+
+        // Close the IFC model and free WASM memory
+        if (currentModelID !== null) {
+          cleanupIfcModel(ifcAPI, currentModelID);
         }
+
         currentIfcMeshes = [];
+        currentModelID = null;
       }
 
+      // Hide upper text and clear highlight when loading new model
+      hideUpperTextAndClearHighlight();
+
       // Load the new IFC file
-      const meshes = await loadAndRenderIfc(ifcAPI, file, scene);
+      const { meshes, modelID } = await loadAndRenderIfc(ifcAPI, file, scene);
       currentIfcMeshes = meshes;
+      currentModelID = modelID;
 
       // Adjust camera to view the loaded model
       const camera = scene.activeCamera as ArcRotateCamera;
