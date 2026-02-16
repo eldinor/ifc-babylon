@@ -1,5 +1,5 @@
+import { initializeWebIFC, loadAndRenderIfc, disposeIfcScene, cleanupIfcModel } from "./ifcLoader";
 import { Engine, Scene, ArcRotateCamera, HemisphericLight, Vector3, AbstractMesh, Color3 } from "@babylonjs/core";
-import { initializeWebIFC, loadAndRenderIfc, disposeIfcScene, cleanupIfcModel } from "./dstest";
 import { ShowInspector } from "@babylonjs/inspector";
 
 // Initialize web-ifc API

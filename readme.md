@@ -1,251 +1,115 @@
-# How to Load and Render IFC Files with Babylon.js
+# Babylon.js IFC Viewer (web-ifc)
 
 ## Overview
-
-This project provides a complete IFC file viewer using web-ifc and Babylon.js. You can load IFC files from URLs or via drag-and-drop, with automatic metadata extraction and 3D rendering.
-
-## Current Status
-
-✅ **Babylon.js** - Fully working 3D scene with camera controls
-
-✅ **web-ifc** - Initialized with proper WASM loading
-
-✅ **IFC Loader** - Unified loading function for URLs and File objects
-
-✅ **Metadata Extraction** - Project info, buildings, units, and property sets
-
-✅ **Material Merging** - Intelligent mesh merging to reduce draw calls
-
-✅ **Transparency Handling** - Proper rendering of transparent materials
-
-✅ **Drag-and-Drop** - Drop .ifc files onto the canvas to load them
-
-✅ **Automatic Cleanup** - Previous models are properly disposed when loading new files
-
-## How to Load an IFC File
-
-### From URL
-
-```typescript
-import { loadAndRenderIfc } from "./ifcLoader";
-
-// Load from URL
-const meshes = await loadAndRenderIfc(ifcAPI, "/test.ifc", scene);
-console.log(`Loaded ${meshes.length} meshes from IFC file`);
-```
-
-### From File Object (Drag-and-Drop)
-
-```typescript
-// The unified function accepts both URL strings and File objects
-const meshes = await loadAndRenderIfc(ifcAPI, fileObject, scene);
-```
-
-## Available Functions
-
-### Core Loading Function
-
-#### `loadAndRenderIfc(ifcAPI, source, scene)`
-
-**Unified function** that loads an IFC file from either a URL or File object and creates Babylon.js meshes.
-
-**Parameters:**
-
-- `ifcAPI: WebIFC.IfcAPI` - The web-ifc API instance
-- `source: string | File` - Either a URL string or a File object
-- `scene: Scene` - The Babylon.js scene
-
-**Returns:** `Promise<Mesh[]>` - Array of loaded meshes
-
-**Features:**
-
-- Automatic source type detection
-- Metadata extraction and console logging
-- Building information display
-- Material merging for performance
-- Transparency handling
-- Coordinate system transformation
-
-```typescript
-// Load from URL
-const meshes1 = await loadAndRenderIfc(ifcAPI, "/path/to/file.ifc", scene);
-
-// Load from File object
-const meshes2 = await loadAndRenderIfc(ifcAPI, fileObject, scene);
-```
-
-### Metadata Extraction Functions
-
-#### `extractIfcMetadata(ifcAPI, modelID)`
-
-Extracts project metadata including project name, description, software, author, and organization.
-
-```typescript
-const metadata = extractIfcMetadata(ifcAPI, modelID);
-console.log(metadata.projectName);
-console.log(metadata.software);
-```
-
-#### `getBuildingInfo(ifcAPI, modelID)`
-
-Extracts building information from the IFC model.
-
-```typescript
-const buildings = await getBuildingInfo(ifcAPI, modelID);
-buildings.forEach((building) => {
-  console.log(building.name, building.elevation);
-});
-```
-
-#### `getProjectUnits(ifcAPI, modelID)`
-
-Extracts project units (length, area, volume, etc.).
-
-```typescript
-const units = await getProjectUnits(ifcAPI, modelID);
-units.forEach((unit) => {
-  console.log(unit.unitType, unit.name);
-});
-```
-
-#### `getAllPropertySets(ifcAPI, modelID)`
-
-Extracts all property sets from the IFC model.
-
-```typescript
-const propertySets = await getAllPropertySets(ifcAPI, modelID);
-propertySets.forEach((propSet) => {
-  console.log(propSet.name);
-  propSet.properties.forEach((prop) => {
-    console.log(`  ${prop.name}: ${prop.value}`);
-  });
-});
-```
-
-### Initialization
-
-#### `initializeWebIFC()`
-
-Initializes the web-ifc API with proper WASM loading.
-
-```typescript
-const ifcAPI = await initializeWebIFC();
-```
-
-## Features
-
-### Drag-and-Drop Support
-
-The application supports drag-and-drop for IFC files:
-
-1. Simply drag an `.ifc` file from your file explorer
-2. Drop it onto the canvas
-3. The previous model is automatically cleaned up
-4. The new model is loaded and displayed
-5. Camera automatically adjusts to frame the model
-
-### Metadata Console Output
-
-When loading an IFC file, the following information is displayed in the console:
-
-```
-📋 IFC File Metadata:
-  Project Name: My Building Project
-  Description: Office Building Design
-  Software: Autodesk Revit 2021
-  Author: John Doe
-  Organization: Architecture Firm
-
-🏢 Building Information:
-  Building 1:
-    ID: 145
-    Name: Building A
-    Long Name: Main Office Building
-    Description: Primary office structure
-    Elevation: 0.0
-
-✓ Loaded IFC file with 15 meshes
-```
-
-### Material Merging
-
-The loader automatically merges meshes with identical materials to improve performance:
-
-- Reduces draw calls significantly
-- Maintains material properties
-- Properly disposes unused materials
-- Handles transparency correctly (alpha < 1.0 → alpha = 0.2)
-
-### Memory Management
-
-- Previous models are completely disposed when loading new files
-- Both meshes and materials are cleaned up
-- No memory leaks from accumulated models
-
-## Console Output Control
-
-Project units and property sets extraction is available but commented out by default to reduce console clutter. To enable them, uncomment the relevant sections in `src/ifcLoader.ts`:
-
-```typescript
-// Uncomment to show project units
-// console.log("\n📏 Project Units:");
-// const units = await getProjectUnits(ifcAPI, modelID);
-// ...
-
-// Uncomment to show property sets
-// console.log("\n📦 Property Sets:");
-// const propertySets = await getAllPropertySets(ifcAPI, modelID);
-// ...
-```
-
-## Testing
-
-1. Start the dev server: `npm run dev`
-2. Open the browser console
-3. You should see: "✓ web-ifc initialized successfully!"
-4. The initial IFC file (`/test.ifc`) loads automatically
-5. Try dragging and dropping your own `.ifc` files onto the canvas
-
-## Technical Details
-
-### Coordinate System
-
-- Uses identity matrix transformation (no coordinate conversion)
-- IFC coordinate system is used directly with Babylon.js
-
-### Transparency Handling
-
-- Materials with alpha < 1.0 are set to alpha = 0.2 for visibility
-- Uses ALPHABLEND transparency mode
-- Ensures glass and transparent elements are visible
-
-### Vertex Data
-
-- web-ifc provides interleaved vertex data: `[x, y, z, nx, ny, nz, ...]`
-- 6 floats per vertex (position + normal)
-- Properly extracted and converted to Babylon.js format
-
-## Architecture
-
-```
+Interactive IFC viewer built with Babylon.js and web-ifc. Supports URL or drag-and-drop loading, automatic metadata extraction, intelligent mesh merging, picking/highlighting, cleanup, and camera framing. Uses Vite with static WASM copy for production.
+
+## Quick start
+- Install: `npm install`
+- Dev server: `npm run dev`
+- Build: `npm run build` (copies `web-ifc.wasm` to `dist/` via vite-plugin-static-copy)
+- Preview build: `npm run preview`
+
+Open http://localhost:5173 and the sample IFC `public/test.ifc` will load automatically if web-ifc initializes.
+
+## Current capabilities
+- Babylon.js scene with ArcRotateCamera, HemisphericLight, and Inspector
+- web-ifc initialization with configurable WASM path `initializeWebIFC("./")`
+- Unified loader: `loadAndRenderIfc(ifcAPI, source, scene[, options])` for URL string or File
+- Drag-and-drop `.ifc` onto the canvas with validation
+- Automatic cleanup when loading a new file: `disposeIfcScene(scene)` + `cleanupIfcModel(ifcAPI, modelID)`
+- Metadata extraction: project name/description, software, author, organization
+- Intelligent merging by element and material while preserving `expressID` and `modelID`
+- Camera auto-framing to loaded content
+- Element picking and highlight overlay with type/name banner
+
+## Usage
+Initialization (src/main.ts):
+- Initialize web-ifc with WASM path `"./"` so `dist/web-ifc.wasm` is found in production
+- Create engine/scene/camera/light
+- Load default IFC:
+  - `const { meshes, modelID } = await loadAndRenderIfc(ifcAPI, "/test.ifc", scene)`
+- Frame camera to meshes
+- Enable Babylon Inspector
+- Set up picking and drag-and-drop
+
+Load from URL or File:
+- `await loadAndRenderIfc(ifcAPI, "/path/to/file.ifc", scene)`
+- `await loadAndRenderIfc(ifcAPI, fileObject, scene)`
+
+Cleanup before loading a new model:
+- `disposeIfcScene(scene)` // disposes ifc-root and IFC materials
+- `cleanupIfcModel(ifcAPI, modelID)` // closes model and frees WASM memory
+
+## Public API (src/ifcLoader.ts)
+- `initializeWebIFC(wasmPath? = undefined, logLevel = LOG_LEVEL_ERROR): Promise<IfcAPI>`
+- `loadAndRenderIfc(ifcAPI, source: string | File, scene, options?): Promise<{ meshes, stats, modelID }>`
+- `disposeIfcScene(scene): void`
+- `cleanupIfcModel(ifcAPI, modelID): void`
+- `getModelBounds(meshes): { min, max, center, size, diagonal } | null`
+
+Loader options (partial):
+- `coordinateToOrigin` (default true)
+- `generateNormals` (default false)
+- `verbose` (default true)
+
+## Metadata utilities (src/ifcMetadata.ts)
+- `extractIfcMetadata(ifcAPI, modelID)` — project name/description, software, author, organization
+- `getBuildingInfo(ifcAPI, modelID)` — list buildings (id, names, elevation)
+- `getProjectUnits(ifcAPI, modelID)` — units assignment
+- `getAllPropertySets(ifcAPI, modelID)` — all IFCPROPERTYSET and properties
+
+## Picking and highlighting
+- Left-click a mesh to log full element data via `ifcAPI.GetLine(modelID, expressID, true)` and type name via `GetNameFromTypeCode`
+- Highlight uses `renderOverlay` with teal color and alpha=0.3
+- Upper text banner shows type, name, and ExpressID; clicking empty space clears it
+
+## Materials, merging, and performance
+- Materials are `StandardMaterial` per unique RGBA color, `backFaceCulling=false`, incremental `zOffset` to mitigate z-fighting
+- Meshes are merged per (expressID + color) when safe; safety check prevents merging across different storeys using spatial relations
+- Metadata (`expressID`, `modelID`) preserved on merged meshes
+- Stats for counts, triangles, materials, and load time are computed
+
+## Coordinate system and geometry
+- web-ifc streams interleaved vertex data `[x,y,z,nx,ny,nz]`
+- Optional normal generation when required
+- Per-part transforms baked from placed geometry matrices
+
+## Project structure
 src/
-├── main.ts              - Application entry point, scene setup, drag-and-drop
-├── ifcLoader.ts         - IFC loading and metadata extraction utilities
-└── style.css            - Basic styling
+- main.ts — entry, scene setup, default load, picking, drag-and-drop, camera framing, inspector
+- ifcLoader.ts — initialization, IFC loading, geometry conversion, merging, cleanup helpers
+- ifcMetadata.ts — metadata utilities
+- style.css — basic styling and upper text
 
 public/
-├── test.ifc             - Example IFC file
-└── web-ifc.wasm         - WebAssembly binary (copied by Vite)
-```
+- test.ifc — sample IFC file loaded at startup
+- example.ifc — additional sample
+- bplogo.svg — asset
 
-## Next Steps
+Root
+- index.html — canvas and UI scaffolding
+- vite.config.ts — copies `web-ifc.wasm` to `dist/`, sets WASM handling
+- tsconfig.json — TypeScript config
+- package.json — scripts and deps
 
-- ✅ ~~Implement IFC property extraction~~ (Done)
-- ✅ ~~Add material/color mapping based on IFC data~~ (Done)
-- ✅ ~~Add drag-and-drop support~~ (Done)
-- ✅ ~~Implement proper cleanup when loading new files~~ (Done)
-- 🔲 Add element selection and highlighting
-- 🔲 Add UI controls for metadata display
-- 🔲 Implement property panel for selected elements
-- 🔲 Add spatial structure tree view
-- 🔲 Implement filtering by IFC type
+## Console output examples
+- `✓ web-ifc initialized successfully!`
+- `✓ IFC loaded successfully in Xms` — shows mesh/triangle counts
+- `📋 IFC File Metadata:` project, description, software, author, organization
+- Grouping/merging and storey map stats
+
+## Build and deploy notes
+- The Vite config copies `node_modules/web-ifc/web-ifc.wasm` to `dist/`
+- In production, `initializeWebIFC("./")` ensures the WASM is loaded from the dist root
+- `optimizeDeps.exclude = ["web-ifc"]` prevents esbuild issues during dev
+
+## Limitations and backlog
+- UI property panel function exists but is commented out by default
+- No spatial tree or filters yet
+- Overlay highlight only; no outline/edge highlights
+
+Planned improvements:
+- UI controls and property panel
+- Spatial structure tree and type filters
+- Outline/edge rendering highlight option
+- Batching/progress for very large models
