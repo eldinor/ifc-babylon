@@ -1,57 +1,6 @@
 import * as WebIFC from "web-ifc";
-import {
-  Scene,
-  Mesh,
-  VertexData,
-  Matrix,
-  AbstractMesh,
-  TransformNode,
-  Vector3,
-  Color3,
-  StandardMaterial,
-} from "@babylonjs/core";
+import { Scene, Mesh, VertexData, StandardMaterial, Color3, Matrix } from "@babylonjs/core";
 import { extractIfcMetadata } from "./ifcMetadata";
-
-// Interface for mesh with color information
-interface MeshWithColor {
-  mesh: Mesh;
-  colorId: number;
-  color: { x: number; y: number; z: number; w: number } | null;
-}
-
-// Configuration interface for better flexibility
-export interface IfcLoaderOptions {
-  /** Merge meshes with same material to reduce draw calls */
-  mergeMeshes?: boolean;
-  /** Generate smooth normals if missing */
-  generateNormals?: boolean;
-  /** Use PBR materials for better rendering */
-  usePBR?: boolean;
-  /** Coordinate to origin transformation */
-  coordinateToOrigin?: boolean;
-  /** Logging verbosity */
-  verbose?: boolean;
-  /** Progress callback */
-  onProgress?: (current: number, total: number) => void;
-  /** Batch size for geometry processing */
-  batchSize?: number;
-  /** Enable double-sided rendering */
-  doubleSided?: boolean;
-  /** Maximum texture size for generated materials */
-  maxTextureSize?: number;
-}
-
-// Statistics for performance monitoring
-export interface LoaderStats {
-  originalMeshCount: number;
-  mergedMeshCount: number;
-  vertexCount: number;
-  triangleCount: number;
-  materialCount: number;
-  loadTimeMs: number;
-  memoryUsageMB?: number;
-}
-
 /**
  * Initialize the web-ifc API
  * This should be called once at application startup
