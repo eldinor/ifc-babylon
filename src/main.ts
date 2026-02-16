@@ -13,13 +13,13 @@ let currentModelID: number | null = null;
 let currentHighlightedMesh: AbstractMesh | null = null;
 
 try {
-  ifcAPI = await initializeWebIFC();
+  // Set WASM path to "./" so web-ifc can find web-ifc.wasm in production
+  // In dev, Vite serves from node_modules; in prod, vite-plugin-static-copy puts it at dist root
+  ifcAPI = await initializeWebIFC("./");
   console.log("✓ web-ifc initialized successfully!");
-  console.log("  You can now load IFC files using the dstest utilities");
 } catch (error) {
   console.error("⚠ Failed to initialize web-ifc:", error);
   console.log("  The Babylon.js scene will still work, but IFC loading will not be available");
-  console.log("  This is likely due to web worker limitations in the development environment");
 }
 
 // Get the canvas element
@@ -29,6 +29,7 @@ const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
 const engine = new Engine(canvas, true);
 
 // Helper function to show properties panel
+// @ts-ignore: Kept for future use
 const showPropertiesPanel = (element: any) => {
   // Get or create properties panel
   let panel = document.getElementById("properties-panel");

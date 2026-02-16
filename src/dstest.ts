@@ -88,48 +88,22 @@ async function loadIfcFile(
   options: IfcLoaderOptions = {},
 ): Promise<number> {
   let data: ArrayBuffer;
-  let totalSize: number;
 
   if (typeof source === "string") {
-    if (options.verbose) console.log(`📥 Fetching IFC from URL: ${source}`);
+    console.log(`📥 Fetching IFC from URL: ${source}`);
     const response = await fetch(source);
-    totalSize = parseInt(response.headers.get("content-length") || "0");
-    const reader = response.body?.getReader();
+    console.log(
+      `📥 Fetch response: status=${response.status}, ok=${response.ok}, type=${response.headers.get("content-type")}`,
+    );
 
-    if (reader && totalSize > 0) {
-      // Stream with progress
-      const chunks: Uint8Array[] = [];
-      let received = 0;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        chunks.push(value);
-        received += value.length;
-
-        if (options.onProgress) {
-          options.onProgress(received, totalSize);
-        }
-      }
-
-      // Combine chunks
-      const allChunks = new Uint8Array(received);
-      let position = 0;
-      for (const chunk of chunks) {
-        allChunks.set(chunk, position);
-        position += chunk.length;
-      }
-      data = allChunks.buffer;
-    } else {
-      // Fallback to regular fetch
-      data = await response.arrayBuffer();
+    if (!response.ok) {
+      throw new Error(`Failed to fetch IFC file: HTTP ${response.status} ${response.statusText}`);
     }
+
+    data = await response.arrayBuffer();
+    console.log(`📥 Received ${(data.byteLength / 1024 / 1024).toFixed(2)} MB`);
   } else {
-    if (options.verbose) {
-      console.log(`📥 Loading IFC file: ${source.name} (${(source.size / 1024 / 1024).toFixed(2)} MB)`);
-    }
-    totalSize = source.size;
+    console.log(`📥 Loading IFC file: ${source.name} (${(source.size / 1024 / 1024).toFixed(2)} MB)`);
     data = await source.arrayBuffer();
   }
 
@@ -141,7 +115,9 @@ async function loadIfcFile(
     TAPE_SIZE: 67108864,
   };
 
+  console.log(`📥 Opening IFC model (${(data.byteLength / 1024 / 1024).toFixed(2)} MB)...`);
   const modelID = ifcAPI.OpenModel(new Uint8Array(data), settings);
+  console.log(`📥 OpenModel returned modelID: ${modelID}`);
 
   if (modelID === -1) {
     throw new Error("Failed to open IFC model");

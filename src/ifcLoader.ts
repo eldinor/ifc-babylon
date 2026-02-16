@@ -1,6 +1,6 @@
 import * as WebIFC from "web-ifc";
 import { Scene, Mesh, VertexData, StandardMaterial, Color3, Matrix } from "@babylonjs/core";
-import { extractIfcMetadata, getBuildingInfo } from "./ifcMetadata";
+import { extractIfcMetadata } from "./ifcMetadata";
 /**
  * Initialize the web-ifc API
  * This should be called once at application startup
