@@ -1,11 +1,5 @@
-import {
-  initializeWebIFC,
-  loadAndRenderIfc,
-  disposeIfcScene,
-  cleanupIfcModel,
-  getModelBounds,
-  // centerModelAtOrigin,
-} from "./ifcLoader";
+import { initializeWebIFC, loadIfcModel, closeIfcModel, extractMetadata } from "./ifcLoader";
+import { buildScene, disposeIfcScene, getModelBounds } from "./sceneBuilder";
 import {
   Engine,
   Scene,
@@ -24,7 +18,6 @@ let ifcAPI: any = null;
 // Store currently loaded meshes and model ID for cleanup when loading new files
 let currentIfcMeshes: AbstractMesh[] = [];
 let currentModelID: number | null = null;
-// @ts-ignore
 let currentRootNode: TransformNode | null = null;
 
 // Store currently highlighted mesh
@@ -127,71 +120,13 @@ const hideUpperTextAndClearHighlight = () => {
 };
 
 /**
- * Helper function to calculate bounds manually (fallback method)
- * Now matches the return type of getModelBounds
- */
-const calculateBoundsManually = (
-  meshes: AbstractMesh[],
-): { min: Vector3; max: Vector3; center: Vector3; size: Vector3; diagonal: number } | null => {
-  if (meshes.length === 0) return null;
-
-  let minX = Infinity,
-    minY = Infinity,
-    minZ = Infinity;
-  let maxX = -Infinity,
-    maxY = -Infinity,
-    maxZ = -Infinity;
-  let validBoundsFound = false;
-
-  meshes.forEach((mesh) => {
-    if (!mesh.isVisible || mesh.getTotalVertices() === 0) return;
-
-    // Get vertices in world space
-    const vertices = mesh.getVerticesData("position");
-    if (!vertices) return;
-
-    const worldMatrix = mesh.getWorldMatrix();
-
-    for (let i = 0; i < vertices.length; i += 3) {
-      const localPoint = new Vector3(vertices[i], vertices[i + 1], vertices[i + 2]);
-      const worldPoint = Vector3.TransformCoordinates(localPoint, worldMatrix);
-
-      minX = Math.min(minX, worldPoint.x);
-      minY = Math.min(minY, worldPoint.y);
-      minZ = Math.min(minZ, worldPoint.z);
-      maxX = Math.max(maxX, worldPoint.x);
-      maxY = Math.max(maxY, worldPoint.y);
-      maxZ = Math.max(maxZ, worldPoint.z);
-
-      validBoundsFound = true;
-    }
-  });
-
-  if (!validBoundsFound) return null;
-
-  const min = new Vector3(minX, minY, minZ);
-  const max = new Vector3(maxX, maxY, maxZ);
-  const center = new Vector3((minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2);
-  const size = new Vector3(maxX - minX, maxY - minY, maxZ - minZ);
-  const diagonal = Math.sqrt(size.x * size.x + size.y * size.y + size.z * size.z);
-
-  return { min, max, center, size, diagonal };
-};
-
-/**
  * Helper function to adjust camera to view meshes
  */
 const adjustCameraToMeshes = (meshes: AbstractMesh[], camera: ArcRotateCamera) => {
   if (meshes.length === 0) return;
 
-  // Try to use the getModelBounds function first
-  let bounds = getModelBounds(meshes);
-
-  // If that fails, use manual calculation
-  if (!bounds) {
-    console.log("  Using manual bounds calculation...");
-    bounds = calculateBoundsManually(meshes);
-  }
+  // Get model bounds
+  const bounds = getModelBounds(meshes);
 
   if (!bounds) {
     console.warn("Could not calculate model bounds");
@@ -227,6 +162,46 @@ const adjustCameraToMeshes = (meshes: AbstractMesh[], camera: ArcRotateCamera) =
 };
 
 /**
+ * Load an IFC file using the new two-step API
+ */
+const loadIfc = async (scene: Scene, source: string | File) => {
+  if (!ifcAPI) {
+    throw new Error("IFC API not initialized");
+  }
+
+  console.log(`\n📦 Loading IFC file...`);
+
+  // Step 1: Load raw IFC model data (web-ifc only)
+  const model = await loadIfcModel(ifcAPI, source, {
+    coordinateToOrigin: true,
+    verbose: true,
+  });
+
+  // Step 2: Extract metadata (web-ifc only)
+  const metadata = extractMetadata(ifcAPI, model.modelID);
+  console.log("\n📋 IFC File Metadata:");
+  console.log(`  Project: ${metadata.projectName || "N/A"}`);
+  console.log(`  Description: ${metadata.projectDescription || "N/A"}`);
+  console.log(`  Software: ${metadata.software || "N/A"}`);
+  console.log(`  Author: ${metadata.author || "N/A"}`);
+  console.log(`  Organization: ${metadata.organization || "N/A"}`);
+
+  // Step 3: Build Babylon.js scene (Babylon only)
+  const { meshes, rootNode, stats } = buildScene(model, scene, {
+    autoCenter: true,
+    mergeMeshes: true,
+    doubleSided: true,
+    generateNormals: false,
+    verbose: true,
+  });
+
+  console.log(`\n✓ IFC loaded successfully`);
+  console.log(`  ${meshes.length} meshes, ${model.rawStats.triangleCount.toLocaleString()} triangles`);
+
+  return { meshes, rootNode, modelID: model.modelID, stats };
+};
+
+/**
  * Create the scene
  */
 const createScene = async (): Promise<Scene> => {
@@ -254,28 +229,14 @@ const createScene = async (): Promise<Scene> => {
   // After creating the scene, try to load initial IFC file
   if (ifcAPI) {
     try {
-      console.log("\n📦 Loading initial IFC file: /test.ifc");
+      const { meshes, modelID, rootNode, stats } = await loadIfc(scene, "/test.ifc");
 
-      // Load the IFC file with auto-centering enabled
-      const {
-        meshes: initialMeshes,
-        modelID,
-        rootNode,
-        stats,
-      } = await loadAndRenderIfc(ifcAPI, "/test.ifc", scene, {
-        autoCenter: true, // Auto-center the model at origin
-        verbose: true, // Show detailed loading information
-        generateNormals: false,
-        coordinateToOrigin: true,
-      });
-
-      currentIfcMeshes = initialMeshes;
+      currentIfcMeshes = meshes;
       currentModelID = modelID;
       currentRootNode = rootNode;
 
       console.log(`✓ Loaded ${currentIfcMeshes.length} IFC meshes (Model ID: ${modelID})`);
-      console.log(`  Load time: ${stats.loadTimeMs.toFixed(2)}ms`);
-      console.log(`  Triangles: ${stats.triangleCount.toLocaleString()}`);
+      console.log(`  Build time: ${stats.buildTimeMs.toFixed(2)}ms`);
 
       // Adjust camera to view the loaded model
       if (currentIfcMeshes.length > 0) {
@@ -354,7 +315,7 @@ if (ifcAPI) {
 
         // Close the IFC model and free WASM memory
         if (currentModelID !== null) {
-          cleanupIfcModel(ifcAPI, currentModelID);
+          closeIfcModel(ifcAPI, currentModelID);
         }
 
         currentIfcMeshes = [];
@@ -365,13 +326,8 @@ if (ifcAPI) {
       // Hide upper text and clear highlight when loading new model
       hideUpperTextAndClearHighlight();
 
-      // Load the new IFC file with auto-centering
-      const { meshes, modelID, rootNode, stats } = await loadAndRenderIfc(ifcAPI, file, scene, {
-        autoCenter: true,
-        verbose: true,
-        generateNormals: false,
-        coordinateToOrigin: true,
-      });
+      // Load the new IFC file using two-step API
+      const { meshes, modelID, rootNode, stats } = await loadIfc(scene, file);
 
       currentIfcMeshes = meshes;
       currentModelID = modelID;
@@ -384,9 +340,7 @@ if (ifcAPI) {
       }
 
       console.log(`✅ Successfully loaded ${file.name}`);
-      console.log(
-        `  Statistics: ${meshes.length} meshes, ${stats.triangleCount.toLocaleString()} triangles, ${stats.loadTimeMs.toFixed(2)}ms\n`,
-      );
+      console.log(`  Statistics: ${meshes.length} meshes, ${stats.buildTimeMs.toFixed(2)}ms\n`);
     } catch (error) {
       console.error("Failed to load IFC file:", error);
       alert(`Failed to load IFC file: ${error}`);
@@ -395,7 +349,6 @@ if (ifcAPI) {
 }
 
 // Add a reset camera button or functionality (optional)
-// @ts-ignore
 const resetCamera = () => {
   if (currentIfcMeshes.length > 0) {
     const camera = scene.activeCamera as ArcRotateCamera;

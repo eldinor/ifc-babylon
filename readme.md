@@ -3,6 +3,8 @@
 ## Overview
 Interactive IFC viewer built with Babylon.js and web-ifc. Supports URL or drag-and-drop loading, automatic metadata extraction, intelligent mesh merging, picking/highlighting, cleanup, and camera framing. Uses Vite with static WASM copy for production.
 
+**Architecture:** Clean 3-file separation between IFC data layer (web-ifc only) and rendering layer (Babylon.js only).
+
 ## Quick start
 - Install: `npm install`
 - Dev server: `npm run dev`
@@ -14,49 +16,144 @@ Open http://localhost:5173 and the sample IFC `public/test.ifc` will load automa
 ## Current capabilities
 - Babylon.js scene with ArcRotateCamera, HemisphericLight, and Inspector
 - web-ifc initialization with configurable WASM path `initializeWebIFC("./")`
-- Unified loader: `loadAndRenderIfc(ifcAPI, source, scene[, options])` for URL string or File
+- Two-step loading API: `loadIfcModel()` (data) + `buildScene()` (rendering)
 - Drag-and-drop `.ifc` onto the canvas with validation
-- Automatic cleanup when loading a new file: `disposeIfcScene(scene)` + `cleanupIfcModel(ifcAPI, modelID)`
+- Automatic cleanup when loading a new file: `disposeIfcScene(scene)` + `closeIfcModel(ifcAPI, modelID)`
 - Metadata extraction: project name/description, software, author, organization
 - Intelligent merging by element and material while preserving `expressID` and `modelID`
 - Camera auto-framing to loaded content
 - Element picking and highlight overlay with type/name banner
 
+## Architecture
+
+The codebase follows a strict layered architecture with clear separation of concerns:
+
+### src/ifcLoader.ts — IFC Data Layer (web-ifc only)
+All web-ifc interaction. **Zero Babylon.js dependencies.**
+
+**Exports:**
+- `initializeWebIFC(wasmPath?, logLevel?)` — initialize web-ifc API
+- `loadIfcModel(ifcAPI, source, options?)` — load and extract raw geometry data
+- `closeIfcModel(ifcAPI, modelID)` — free IFC model memory
+- `extractMetadata(ifcAPI, modelID)` — get project/author/software metadata
+- `getBuildingInfo(ifcAPI, modelID)` — get building information
+- `getProjectUnits(ifcAPI, modelID)` — get units
+- `getAllPropertySets(ifcAPI, modelID)` — get property sets
+
+**Types:**
+- `RawIfcModel` — intermediate data format with no framework dependencies
+- `RawGeometryPart` — single piece of geometry with transforms and colors
+- `IfcLoaderOptions` — configuration for loading
+
+### src/sceneBuilder.ts — Rendering Layer (Babylon.js only)
+All Babylon.js scene construction. **Zero web-ifc dependencies.**
+
+**Exports:**
+- `buildScene(model, scene, options?)` — create meshes, materials, merge, center
+- `disposeIfcScene(scene)` — dispose all IFC meshes and materials
+- `getModelBounds(meshes)` — calculate bounding box
+- `centerModelAtOrigin(meshes, rootNode?)` — center model at origin
+
+**Types:**
+- `SceneBuildOptions` — configuration for scene building
+- `SceneBuildResult` — meshes, root node, and statistics
+- `BuildStats` — performance and mesh statistics
+
+### src/main.ts — Application Layer
+App orchestration, camera control, picking, drag-and-drop.
+
 ## Usage
-Initialization (src/main.ts):
-- Initialize web-ifc with WASM path `"./"` so `dist/web-ifc.wasm` is found in production
-- Create engine/scene/camera/light
-- Load default IFC:
-  - `const { meshes, modelID } = await loadAndRenderIfc(ifcAPI, "/test.ifc", scene)`
-- Frame camera to meshes
-- Enable Babylon Inspector
-- Set up picking and drag-and-drop
 
-Load from URL or File:
-- `await loadAndRenderIfc(ifcAPI, "/path/to/file.ifc", scene)`
-- `await loadAndRenderIfc(ifcAPI, fileObject, scene)`
+### Initialization and Loading (two-step API)
+```typescript
+// Step 1: Initialize web-ifc
+const ifcAPI = await initializeWebIFC("./");
 
-Cleanup before loading a new model:
-- `disposeIfcScene(scene)` // disposes ifc-root and IFC materials
-- `cleanupIfcModel(ifcAPI, modelID)` // closes model and frees WASM memory
+// Step 2: Load raw IFC data (web-ifc only)
+const model = await loadIfcModel(ifcAPI, "/test.ifc", {
+  coordinateToOrigin: true,
+  verbose: true
+});
 
-## Public API (src/ifcLoader.ts)
-- `initializeWebIFC(wasmPath? = undefined, logLevel = LOG_LEVEL_ERROR): Promise<IfcAPI>`
-- `loadAndRenderIfc(ifcAPI, source: string | File, scene, options?): Promise<{ meshes, stats, modelID }>`
-- `disposeIfcScene(scene): void`
-- `cleanupIfcModel(ifcAPI, modelID): void`
-- `getModelBounds(meshes): { min, max, center, size, diagonal } | null`
+// Step 3: Extract metadata (optional)
+const metadata = extractMetadata(ifcAPI, model.modelID);
 
-Loader options (partial):
-- `coordinateToOrigin` (default true)
-- `generateNormals` (default false)
-- `verbose` (default true)
+// Step 4: Build Babylon.js scene (Babylon only)
+const { meshes, rootNode, stats } = buildScene(model, scene, {
+  autoCenter: true,
+  mergeMeshes: true,
+  doubleSided: true,
+  verbose: true
+});
+```
 
-## Metadata utilities (src/ifcMetadata.ts)
-- `extractIfcMetadata(ifcAPI, modelID)` — project name/description, software, author, organization
-- `getBuildingInfo(ifcAPI, modelID)` — list buildings (id, names, elevation)
-- `getProjectUnits(ifcAPI, modelID)` — units assignment
-- `getAllPropertySets(ifcAPI, modelID)` — all IFCPROPERTYSET and properties
+### Load from URL or File
+```typescript
+// From URL
+const model = await loadIfcModel(ifcAPI, "/path/to/file.ifc");
+
+// From File object
+const model = await loadIfcModel(ifcAPI, fileObject);
+```
+
+### Cleanup before loading a new model
+```typescript
+// Dispose Babylon.js scene (meshes, materials, root node)
+disposeIfcScene(scene);
+
+// Close IFC model and free WASM memory
+closeIfcModel(ifcAPI, modelID);
+```
+
+## API Reference
+
+### ifcLoader.ts (Data Layer)
+
+#### `initializeWebIFC(wasmPath?, logLevel?)`
+Initialize web-ifc API. Call once at startup.
+
+#### `loadIfcModel(ifcAPI, source, options?)`
+Load IFC file and extract raw geometry data.
+- **Returns:** `RawIfcModel` with parts, storey map, and statistics
+- **Options:** `coordinateToOrigin` (default: true), `verbose` (default: true)
+
+#### `closeIfcModel(ifcAPI, modelID)`
+Close model and free WASM memory.
+
+#### `extractMetadata(ifcAPI, modelID)`
+Extract project metadata (name, description, software, author, organization).
+
+#### `getBuildingInfo(ifcAPI, modelID)`
+Get building information (id, name, longName, description, elevation).
+
+#### `getProjectUnits(ifcAPI, modelID)`
+Get project units assignment.
+
+#### `getAllPropertySets(ifcAPI, modelID)`
+Get all IFCPROPERTYSET entities and their properties.
+
+### sceneBuilder.ts (Rendering Layer)
+
+#### `buildScene(model, scene, options?)`
+Build Babylon.js scene from raw IFC model data.
+- **Returns:** `{ meshes, rootNode, stats }`
+- **Options:**
+  - `mergeMeshes` (default: true) — merge meshes with same material
+  - `autoCenter` (default: true) — center model at origin
+  - `doubleSided` (default: true) — disable backface culling
+  - `generateNormals` (default: false) — generate normals if missing
+  - `verbose` (default: true) — console logging
+
+#### `disposeIfcScene(scene)`
+Dispose all IFC meshes, materials, and the ifc-root node.
+
+#### `getModelBounds(meshes)`
+Calculate bounding box for camera framing.
+- **Returns:** `{ min, max, center, size, diagonal }` or `null`
+
+#### `centerModelAtOrigin(meshes, rootNode?)`
+Manually center model at origin.
+- **Returns:** offset vector
 
 ## Picking and highlighting
 - Left-click a mesh to log full element data via `ifcAPI.GetLine(modelID, expressID, true)` and type name via `GetNameFromTypeCode`
@@ -64,49 +161,70 @@ Loader options (partial):
 - Upper text banner shows type, name, and ExpressID; clicking empty space clears it
 
 ## Materials, merging, and performance
-- Materials are `StandardMaterial` per unique RGBA color, `backFaceCulling=false`, incremental `zOffset` to mitigate z-fighting
+- Materials are `StandardMaterial` per unique RGBA color, configurable `backFaceCulling`, incremental `zOffset` to mitigate z-fighting
 - Meshes are merged per (expressID + color) when safe; safety check prevents merging across different storeys using spatial relations
 - Metadata (`expressID`, `modelID`) preserved on merged meshes
-- Stats for counts, triangles, materials, and load time are computed
+- Stats for counts, triangles, materials, and build time are computed
 
 ## Coordinate system and geometry
 - web-ifc streams interleaved vertex data `[x,y,z,nx,ny,nz]`
 - Optional normal generation when required
 - Per-part transforms baked from placed geometry matrices
+- Z-axis flip applied via root node scaling for IFC-to-Babylon coordinate conversion
 
 ## Project structure
+```
 src/
-- main.ts — entry, scene setup, default load, picking, drag-and-drop, camera framing, inspector
-- ifcLoader.ts — initialization, IFC loading, geometry conversion, merging, cleanup helpers
-- ifcMetadata.ts — metadata utilities
-- style.css — basic styling and upper text
+├── main.ts          — app entry, scene, camera, picking, drag-and-drop
+├── ifcLoader.ts     — IFC data layer (web-ifc only)
+├── sceneBuilder.ts  — rendering layer (Babylon.js only)
+└── style.css        — basic styling
 
 public/
-- test.ifc — sample IFC file loaded at startup
-- example.ifc — additional sample
-- bplogo.svg — asset
+├── test.ifc         — sample IFC file loaded at startup
+├── example.ifc      — additional sample
+└── bplogo.svg       — asset
 
 Root
-- index.html — canvas and UI scaffolding
-- vite.config.ts — copies `web-ifc.wasm` to `dist/`, sets WASM handling
-- tsconfig.json — TypeScript config
-- package.json — scripts and deps
+├── index.html       — canvas and UI scaffolding
+├── vite.config.ts   — copies web-ifc.wasm to dist/, sets WASM handling
+├── tsconfig.json    — TypeScript config
+└── package.json     — scripts and deps
+```
 
 ## Console output examples
-- `✓ web-ifc initialized successfully!`
-- `✓ IFC loaded successfully in Xms` — shows mesh/triangle counts
+- `✓ Web-IFC initialized in Xms`
+- `📦 Collected X geometry parts`
+- `📍 Built storey map with X element-storey relationships`
+- `🏗️ Building Babylon.js scene from X raw parts...`
+- `✅ Scene building complete: X final meshes, Y materials, Zms`
 - `📋 IFC File Metadata:` project, description, software, author, organization
-- Grouping/merging and storey map stats
 
 ## Build and deploy notes
 - The Vite config copies `node_modules/web-ifc/web-ifc.wasm` to `dist/`
 - In production, `initializeWebIFC("./")` ensures the WASM is loaded from the dist root
 - `optimizeDeps.exclude = ["web-ifc"]` prevents esbuild issues during dev
 
+## Benefits of the new architecture
+
+### For the codebase
+- `ifcLoader.ts` has zero Babylon imports — testable without a rendering context
+- `sceneBuilder.ts` has zero web-ifc imports — could be swapped for a different renderer
+- All IFC data access goes through one module
+- One fewer file (ifcMetadata.ts eliminated)
+
+### For future features
+- **Properties panel:** call `getAllPropertySets()` from ifcLoader, render in main.ts
+- **Spatial tree:** use `storeyMap` from `RawIfcModel` + `getBuildingInfo()` from ifcLoader
+- **Storey isolation:** sceneBuilder already receives storeyMap, can filter meshes
+- **Instancing:** detect shared `geometryExpressID` in `RawGeometryPart[]` before mesh creation
+- **Multi-model:** call `loadIfcModel()` + `buildScene()` per file, each gets its own rootNode
+- **Color-by-property:** reassign materials in sceneBuilder using metadata from ifcLoader
+
 ## Limitations and backlog
-- UI property panel function exists but is commented out by default
 - No spatial tree or filters yet
 - Overlay highlight only; no outline/edge highlights
+- No UI property panel
 
 Planned improvements:
 - UI controls and property panel
