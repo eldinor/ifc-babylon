@@ -687,7 +687,7 @@ export function getModelBounds(meshes: AbstractMesh[]): {
 
     // Force update of bounding info
     mesh.computeWorldMatrix(true);
-    mesh.refreshBoundingInfo();
+    mesh.refreshBoundingInfo(false, false);
 
     // Get the bounding info
     const boundingInfo = mesh.getBoundingInfo();

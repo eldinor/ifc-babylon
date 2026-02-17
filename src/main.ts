@@ -4,7 +4,7 @@ import {
   disposeIfcScene,
   cleanupIfcModel,
   getModelBounds,
-  centerModelAtOrigin,
+  // centerModelAtOrigin,
 } from "./ifcLoader";
 import {
   Engine,
@@ -24,6 +24,7 @@ let ifcAPI: any = null;
 // Store currently loaded meshes and model ID for cleanup when loading new files
 let currentIfcMeshes: AbstractMesh[] = [];
 let currentModelID: number | null = null;
+// @ts-ignore
 let currentRootNode: TransformNode | null = null;
 
 // Store currently highlighted mesh
@@ -127,10 +128,11 @@ const hideUpperTextAndClearHighlight = () => {
 
 /**
  * Helper function to calculate bounds manually (fallback method)
+ * Now matches the return type of getModelBounds
  */
 const calculateBoundsManually = (
   meshes: AbstractMesh[],
-): { min: Vector3; max: Vector3; center: Vector3; diagonal: number } | null => {
+): { min: Vector3; max: Vector3; center: Vector3; size: Vector3; diagonal: number } | null => {
   if (meshes.length === 0) return null;
 
   let minX = Infinity,
@@ -173,7 +175,7 @@ const calculateBoundsManually = (
   const size = new Vector3(maxX - minX, maxY - minY, maxZ - minZ);
   const diagonal = Math.sqrt(size.x * size.x + size.y * size.y + size.z * size.z);
 
-  return { min, max, center, diagonal };
+  return { min, max, center, size, diagonal };
 };
 
 /**
@@ -393,6 +395,7 @@ if (ifcAPI) {
 }
 
 // Add a reset camera button or functionality (optional)
+// @ts-ignore
 const resetCamera = () => {
   if (currentIfcMeshes.length > 0) {
     const camera = scene.activeCamera as ArcRotateCamera;
