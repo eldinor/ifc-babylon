@@ -9,6 +9,7 @@ import {
   Vector3,
   Color3,
   StandardMaterial,
+  VertexBuffer,
 } from "@babylonjs/core";
 import { extractIfcMetadata } from "./ifcMetadata";
 
@@ -39,6 +40,8 @@ export interface IfcLoaderOptions {
   doubleSided?: boolean;
   /** Maximum texture size for generated materials */
   maxTextureSize?: number;
+  /** Automatically center the model at origin */
+  autoCenter?: boolean;
 }
 
 // Statistics for performance monitoring
@@ -214,7 +217,7 @@ function loadIfcGeometryAsMeshes(
   modelID: number,
   scene: Scene,
   options: IfcLoaderOptions = {},
-): { meshes: AbstractMesh[]; stats: LoaderStats } {
+): { meshes: AbstractMesh[]; stats: LoaderStats; rootNode: TransformNode } {
   const startTime = performance.now();
 
   // Create root transform node for better organization
@@ -277,7 +280,7 @@ function loadIfcGeometryAsMeshes(
           normals[v * 3 + 1] = verts[v * 6 + 4];
           normals[v * 3 + 2] = verts[v * 6 + 5];
 
-          // Update bounds
+          // Update bounds (local space for now)
           const x = verts[v * 6];
           const y = verts[v * 6 + 1];
           const z = verts[v * 6 + 2];
@@ -440,8 +443,6 @@ function loadIfcGeometryAsMeshes(
 
       if (canMerge) {
         // Safe to merge - all parts in same storey or no storey
-        // Parameters: (meshes, disposeSource, allow32Bits, meshSubclass, subdivideWithSubMeshes, multiMultiMaterials)
-        // We use: disposeSource=true to delete originals, subdivideWithSubMeshes=false to avoid submeshes
         const mergedMesh = Mesh.MergeMeshes(
           meshes,
           true, // disposeSource - DISPOSE original meshes
@@ -465,8 +466,6 @@ function loadIfcGeometryAsMeshes(
           mergedMesh.isVisible = true;
           finalMeshes.push(mergedMesh);
           mergedCount++;
-
-          //   console.log(`  ✓ Merged ${meshes.length} parts for expressID ${expressID} (color ${colorId})`);
         } else {
           // Merge failed - keep original meshes
           meshes.forEach((mesh) => {
@@ -496,11 +495,35 @@ function loadIfcGeometryAsMeshes(
   console.log(`  Final meshes: ${finalMeshes.length}`);
   console.log(`  Materials created: ${materialCache.size}`);
 
-  // Update stats
-  stats.mergedMeshCount = finalMeshes.length;
-  stats.materialCount = materialCache.size;
+  // Apply Z-axis flip for coordinate system conversion (IFC to Babylon)
+  rootNode.scaling.z = -1;
 
-  // Calculate bounds center
+  // Force update of world matrix to apply scaling
+  rootNode.computeWorldMatrix(true);
+
+  // Recalculate bounds in world space after scaling
+  boundsMin = { x: Infinity, y: Infinity, z: Infinity };
+  boundsMax = { x: -Infinity, y: -Infinity, z: -Infinity };
+
+  finalMeshes.forEach((mesh) => {
+    const worldMatrix = mesh.getWorldMatrix();
+    const vertices = mesh.getVerticesData(VertexBuffer.PositionKind);
+    if (!vertices) return;
+
+    for (let i = 0; i < vertices.length; i += 3) {
+      const localPoint = new Vector3(vertices[i], vertices[i + 1], vertices[i + 2]);
+      const worldPoint = Vector3.TransformCoordinates(localPoint, worldMatrix);
+
+      boundsMin.x = Math.min(boundsMin.x, worldPoint.x);
+      boundsMin.y = Math.min(boundsMin.y, worldPoint.y);
+      boundsMin.z = Math.min(boundsMin.z, worldPoint.z);
+      boundsMax.x = Math.max(boundsMax.x, worldPoint.x);
+      boundsMax.y = Math.max(boundsMax.y, worldPoint.y);
+      boundsMax.z = Math.max(boundsMax.z, worldPoint.z);
+    }
+  });
+
+  // Calculate bounds center in world space
   const bounds = {
     min: boundsMin,
     max: boundsMax,
@@ -511,6 +534,22 @@ function loadIfcGeometryAsMeshes(
     },
   };
 
+  // Auto-center the model if requested
+  if (options.autoCenter) {
+    const centerOffset = new Vector3(bounds.center.x, bounds.center.y, bounds.center.z);
+    rootNode.position.subtractInPlace(centerOffset);
+
+    // Recalculate bounds after centering
+    boundsMin = { x: boundsMin.x - centerOffset.x, y: boundsMin.y - centerOffset.y, z: boundsMin.z - centerOffset.z };
+    boundsMax = { x: boundsMax.x - centerOffset.x, y: boundsMax.y - centerOffset.y, z: boundsMax.z - centerOffset.z };
+    bounds.center = { x: 0, y: 0, z: 0 };
+
+    console.log(`📍 Model auto-centered at origin`);
+  }
+
+  // Update stats
+  stats.mergedMeshCount = finalMeshes.length;
+  stats.materialCount = materialCache.size;
   stats.loadTimeMs = performance.now() - startTime;
 
   if (options.verbose) {
@@ -519,15 +558,19 @@ function loadIfcGeometryAsMeshes(
     console.log(`  Final meshes: ${stats.mergedMeshCount}`);
     console.log(`  Vertices: ${stats.vertexCount.toLocaleString()}`);
     console.log(`  Triangles: ${stats.triangleCount.toLocaleString()}`);
+    console.log(`  Materials: ${stats.materialCount}`);
     console.log(`  Load time: ${stats.loadTimeMs.toFixed(2)}ms`);
     console.log(
       `  Bounds: X[${bounds.min.x.toFixed(2)}, ${bounds.max.x.toFixed(2)}] ` +
         `Y[${bounds.min.y.toFixed(2)}, ${bounds.max.y.toFixed(2)}] ` +
         `Z[${bounds.min.z.toFixed(2)}, ${bounds.max.z.toFixed(2)}]`,
     );
+    console.log(
+      `  Center: (${bounds.center.x.toFixed(2)}, ${bounds.center.y.toFixed(2)}, ${bounds.center.z.toFixed(2)})`,
+    );
   }
 
-  return { meshes: finalMeshes, stats };
+  return { meshes: finalMeshes, stats, rootNode };
 }
 
 /**
@@ -539,7 +582,7 @@ export async function loadAndRenderIfc(
   source: string | File,
   scene: Scene,
   options: IfcLoaderOptions = {},
-): Promise<{ meshes: AbstractMesh[]; stats: LoaderStats; modelID: number }> {
+): Promise<{ meshes: AbstractMesh[]; stats: LoaderStats; modelID: number; rootNode: TransformNode }> {
   const startTime = performance.now();
 
   // Set defaults
@@ -547,6 +590,7 @@ export async function loadAndRenderIfc(
     generateNormals: false,
     coordinateToOrigin: true,
     verbose: true,
+    autoCenter: true, // Enable auto-centering by default
     ...options,
   };
 
@@ -566,14 +610,14 @@ export async function loadAndRenderIfc(
     }
 
     // Load geometry and create meshes
-    const { meshes, stats } = loadIfcGeometryAsMeshes(ifcAPI, modelID, scene, opts);
+    const { meshes, stats, rootNode } = loadIfcGeometryAsMeshes(ifcAPI, modelID, scene, opts);
 
     const totalTime = performance.now() - startTime;
 
     console.log(`\n✓ IFC loaded successfully in ${totalTime.toFixed(2)}ms`);
     console.log(`  ${meshes.length} meshes, ${stats.triangleCount.toLocaleString()} triangles`);
 
-    return { meshes, stats, modelID };
+    return { meshes, stats, modelID, rootNode };
   } catch (error) {
     console.error("❌ Failed to load IFC:", error);
     throw error;
@@ -618,6 +662,9 @@ export function disposeIfcScene(scene: Scene): void {
 /**
  * Get model bounds for camera framing
  */
+/**
+ * Get model bounds for camera framing
+ */
 export function getModelBounds(meshes: AbstractMesh[]): {
   min: Vector3;
   max: Vector3;
@@ -633,19 +680,34 @@ export function getModelBounds(meshes: AbstractMesh[]): {
   let maxX = -Infinity,
     maxY = -Infinity,
     maxZ = -Infinity;
+  let validBoundsFound = false;
 
   meshes.forEach((mesh) => {
-    const bounds = mesh.getBoundingInfo().boundingBox;
-    const worldMin = bounds.minimumWorld;
-    const worldMax = bounds.maximumWorld;
+    if (!mesh.isVisible || mesh.getTotalVertices() === 0) return;
 
-    minX = Math.min(minX, worldMin.x);
-    minY = Math.min(minY, worldMin.y);
-    minZ = Math.min(minZ, worldMin.z);
-    maxX = Math.max(maxX, worldMax.x);
-    maxY = Math.max(maxY, worldMax.y);
-    maxZ = Math.max(maxZ, worldMax.z);
+    // Force update of bounding info
+    mesh.computeWorldMatrix(true);
+    mesh.refreshBoundingInfo();
+
+    // Get the bounding info
+    const boundingInfo = mesh.getBoundingInfo();
+
+    // Get min and max in world space
+    const min = boundingInfo.boundingBox.minimumWorld;
+    const max = boundingInfo.boundingBox.maximumWorld;
+
+    // Update bounds
+    minX = Math.min(minX, min.x);
+    minY = Math.min(minY, min.y);
+    minZ = Math.min(minZ, min.z);
+    maxX = Math.max(maxX, max.x);
+    maxY = Math.max(maxY, max.y);
+    maxZ = Math.max(maxZ, max.z);
+
+    validBoundsFound = true;
   });
+
+  if (!validBoundsFound) return null;
 
   const min = new Vector3(minX, minY, minZ);
   const max = new Vector3(maxX, maxY, maxZ);
@@ -654,4 +716,30 @@ export function getModelBounds(meshes: AbstractMesh[]): {
   const diagonal = Math.sqrt(size.x * size.x + size.y * size.y + size.z * size.z);
 
   return { min, max, center, size, diagonal };
+}
+
+/**
+ * Center the model at origin (useful for camera positioning)
+ */
+export function centerModelAtOrigin(meshes: AbstractMesh[], rootNode?: TransformNode): Vector3 {
+  const bounds = getModelBounds(meshes);
+  if (!bounds) return Vector3.Zero();
+
+  const offset = bounds.center.clone();
+
+  if (rootNode) {
+    // Move the entire root node to center the model
+    rootNode.position.subtractInPlace(offset);
+  } else {
+    // Move individual meshes
+    meshes.forEach((mesh) => {
+      mesh.position.subtractInPlace(offset);
+    });
+  }
+
+  console.log(
+    `📍 Model centered at origin, offset: (${offset.x.toFixed(2)}, ${offset.y.toFixed(2)}, ${offset.z.toFixed(2)})`,
+  );
+
+  return offset;
 }

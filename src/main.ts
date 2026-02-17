@@ -1,5 +1,21 @@
-import { initializeWebIFC, loadAndRenderIfc, disposeIfcScene, cleanupIfcModel } from "./ifcLoader";
-import { Engine, Scene, ArcRotateCamera, HemisphericLight, Vector3, AbstractMesh, Color3 } from "@babylonjs/core";
+import {
+  initializeWebIFC,
+  loadAndRenderIfc,
+  disposeIfcScene,
+  cleanupIfcModel,
+  getModelBounds,
+  centerModelAtOrigin,
+} from "./ifcLoader";
+import {
+  Engine,
+  Scene,
+  ArcRotateCamera,
+  HemisphericLight,
+  Vector3,
+  AbstractMesh,
+  Color3,
+  TransformNode,
+} from "@babylonjs/core";
 import { ShowInspector } from "@babylonjs/inspector";
 
 // Initialize web-ifc API
@@ -8,6 +24,7 @@ let ifcAPI: any = null;
 // Store currently loaded meshes and model ID for cleanup when loading new files
 let currentIfcMeshes: AbstractMesh[] = [];
 let currentModelID: number | null = null;
+let currentRootNode: TransformNode | null = null;
 
 // Store currently highlighted mesh
 let currentHighlightedMesh: AbstractMesh | null = null;
@@ -28,122 +45,9 @@ const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
 // Create the Babylon.js engine
 const engine = new Engine(canvas, true);
 
-// Helper function to show properties panel
-// @ts-ignore: Kept for future use
-const showPropertiesPanel = (element: any) => {
-  // Get or create properties panel
-  let panel = document.getElementById("properties-panel");
-  if (!panel) {
-    panel = document.createElement("div");
-    panel.id = "properties-panel";
-    panel.style.cssText = `
-      position: fixed;
-      top: 10px;
-      right: 10px;
-      width: 400px;
-      max-height: 80vh;
-      background: rgba(0, 0, 0, 0.85);
-      color: white;
-      padding: 20px;
-      border-radius: 8px;
-      font-family: 'Courier New', monospace;
-      font-size: 12px;
-      overflow-y: auto;
-      z-index: 1000;
-      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
-    `;
-    document.body.appendChild(panel);
-
-    // Add close button
-    const closeBtn = document.createElement("button");
-    closeBtn.textContent = "✕";
-    closeBtn.style.cssText = `
-      position: absolute;
-      top: 10px;
-      right: 10px;
-      background: rgba(255, 255, 255, 0.2);
-      border: none;
-      color: white;
-      width: 24px;
-      height: 24px;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 16px;
-    `;
-    closeBtn.onclick = () => {
-      panel!.style.display = "none";
-    };
-    panel.appendChild(closeBtn);
-  }
-
-  panel.style.display = "block";
-
-  // Format the element data
-  const formatValue = (value: any, indent = 0): string => {
-    const indentStr = "  ".repeat(indent);
-    if (value === null || value === undefined) {
-      return `${indentStr}<span style="color: #888">null</span>`;
-    }
-    if (typeof value === "object") {
-      if (Array.isArray(value)) {
-        if (value.length === 0) return `${indentStr}[]`;
-        return `${indentStr}[\n` + value.map((v) => formatValue(v, indent + 1)).join(",\n") + `\n${indentStr}]`;
-      }
-      const entries = Object.entries(value);
-      if (entries.length === 0) return `${indentStr}{}`;
-      return (
-        `${indentStr}{\n` +
-        entries
-          .map(([k, v]) => `${indentStr}  <span style="color: #4EC9B0">${k}</span>: ${formatValue(v, 0)}`)
-          .join(",\n") +
-        `\n${indentStr}}`
-      );
-    }
-    if (typeof value === "string") {
-      return `${indentStr}<span style="color: #CE9178">"${value}"</span>`;
-    }
-    if (typeof value === "number") {
-      return `${indentStr}<span style="color: #B5CEA8">${value}</span>`;
-    }
-    if (typeof value === "boolean") {
-      return `${indentStr}<span style="color: #569CD6">${value}</span>`;
-    }
-    return `${indentStr}${value}`;
-  };
-
-  // Build HTML content
-  let html = `<div style="margin-bottom: 30px;">`;
-  html += `<h3 style="margin: 0 0 15px 0; color: #4EC9B0; font-size: 16px;">IFC Element Properties</h3>`;
-  html += `<div style="line-height: 1.6;">`;
-  html += formatValue(element);
-  html += `</div>`;
-  html += `</div>`;
-
-  panel.innerHTML = html;
-
-  // Re-add close button
-  const closeBtn = document.createElement("button");
-  closeBtn.textContent = "✕";
-  closeBtn.style.cssText = `
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    background: rgba(255, 255, 255, 0.2);
-    border: none;
-    color: white;
-    width: 24px;
-    height: 24px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 16px;
-  `;
-  closeBtn.onclick = () => {
-    panel!.style.display = "none";
-  };
-  panel.appendChild(closeBtn);
-};
-
-// Setup picking handler for IFC elements
+/**
+ * Setup picking handler for IFC elements
+ */
 const setupPickingHandler = (scene: Scene, ifcAPI: any) => {
   scene.onPointerDown = (evt, pickResult) => {
     // Only handle left click
@@ -170,7 +74,10 @@ const setupPickingHandler = (scene: Scene, ifcAPI: any) => {
           console.log(`  Element type name:`, typeName);
           console.log(`  Element data:`, element);
           console.log(`  Element type:`, element.type);
-          console.log(`  Element name:`, element.Name.value);
+
+          // Safely access Name property
+          const elementName = element.Name?.value || "Unnamed";
+          console.log(`  Element name:`, elementName);
 
           // Remove previous highlight
           if (currentHighlightedMesh) {
@@ -186,13 +93,9 @@ const setupPickingHandler = (scene: Scene, ifcAPI: any) => {
           // Update upper text with element info
           const upperText = document.getElementById("upper-text");
           if (upperText) {
-            const elementName = element.Name?.value || "Unnamed";
             upperText.innerHTML = `<strong>${typeName}</strong> | ${elementName} | ID: ${expressID}`;
             upperText.style.display = "block";
           }
-
-          // Show properties panel
-          //   showPropertiesPanel(element);
         } catch (error) {
           console.error(`  Failed to get element data:`, error);
         }
@@ -207,7 +110,9 @@ const setupPickingHandler = (scene: Scene, ifcAPI: any) => {
   };
 };
 
-// Helper function to hide upper text and clear highlight
+/**
+ * Helper function to hide upper text and clear highlight
+ */
 const hideUpperTextAndClearHighlight = () => {
   const upperText = document.getElementById("upper-text");
   if (upperText) {
@@ -220,81 +125,168 @@ const hideUpperTextAndClearHighlight = () => {
   }
 };
 
-// Helper function to adjust camera to view meshes
-const adjustCameraToMeshes = (meshes: AbstractMesh[], camera: ArcRotateCamera) => {
-  if (meshes.length === 0) return;
+/**
+ * Helper function to calculate bounds manually (fallback method)
+ */
+const calculateBoundsManually = (
+  meshes: AbstractMesh[],
+): { min: Vector3; max: Vector3; center: Vector3; diagonal: number } | null => {
+  if (meshes.length === 0) return null;
 
-  // Calculate bounding box of all meshes
   let minX = Infinity,
     minY = Infinity,
     minZ = Infinity;
   let maxX = -Infinity,
     maxY = -Infinity,
     maxZ = -Infinity;
+  let validBoundsFound = false;
 
   meshes.forEach((mesh) => {
-    const boundingInfo = mesh.getBoundingInfo();
-    const min = boundingInfo.boundingBox.minimumWorld;
-    const max = boundingInfo.boundingBox.maximumWorld;
+    if (!mesh.isVisible || mesh.getTotalVertices() === 0) return;
 
-    minX = Math.min(minX, min.x);
-    minY = Math.min(minY, min.y);
-    minZ = Math.min(minZ, min.z);
-    maxX = Math.max(maxX, max.x);
-    maxY = Math.max(maxY, max.y);
-    maxZ = Math.max(maxZ, max.z);
+    // Get vertices in world space
+    const vertices = mesh.getVerticesData("position");
+    if (!vertices) return;
+
+    const worldMatrix = mesh.getWorldMatrix();
+
+    for (let i = 0; i < vertices.length; i += 3) {
+      const localPoint = new Vector3(vertices[i], vertices[i + 1], vertices[i + 2]);
+      const worldPoint = Vector3.TransformCoordinates(localPoint, worldMatrix);
+
+      minX = Math.min(minX, worldPoint.x);
+      minY = Math.min(minY, worldPoint.y);
+      minZ = Math.min(minZ, worldPoint.z);
+      maxX = Math.max(maxX, worldPoint.x);
+      maxY = Math.max(maxY, worldPoint.y);
+      maxZ = Math.max(maxZ, worldPoint.z);
+
+      validBoundsFound = true;
+    }
   });
 
-  // Calculate center and size
+  if (!validBoundsFound) return null;
+
+  const min = new Vector3(minX, minY, minZ);
+  const max = new Vector3(maxX, maxY, maxZ);
   const center = new Vector3((minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2);
-  const size = Math.max(maxX - minX, maxY - minY, maxZ - minZ);
+  const size = new Vector3(maxX - minX, maxY - minY, maxZ - minZ);
+  const diagonal = Math.sqrt(size.x * size.x + size.y * size.y + size.z * size.z);
 
-  console.log(`  Model center:`, center);
-  console.log(`  Model size:`, size);
-
-  // Position camera to view the entire model
-  camera.target = center;
-  camera.radius = size * 2;
-  camera.alpha = -Math.PI / 4;
-  camera.beta = Math.PI / 3;
+  return { min, max, center, diagonal };
 };
 
-// Create the scene
+/**
+ * Helper function to adjust camera to view meshes
+ */
+const adjustCameraToMeshes = (meshes: AbstractMesh[], camera: ArcRotateCamera) => {
+  if (meshes.length === 0) return;
+
+  // Try to use the getModelBounds function first
+  let bounds = getModelBounds(meshes);
+
+  // If that fails, use manual calculation
+  if (!bounds) {
+    console.log("  Using manual bounds calculation...");
+    bounds = calculateBoundsManually(meshes);
+  }
+
+  if (!bounds) {
+    console.warn("Could not calculate model bounds");
+    return;
+  }
+
+  console.log(
+    `  Model center: (${bounds.center.x.toFixed(2)}, ${bounds.center.y.toFixed(2)}, ${bounds.center.z.toFixed(2)})`,
+  );
+  console.log(`  Model diagonal: ${bounds.diagonal.toFixed(2)}`);
+  console.log(
+    `  Bounds: X[${bounds.min.x.toFixed(2)}, ${bounds.max.x.toFixed(2)}], ` +
+      `Y[${bounds.min.y.toFixed(2)}, ${bounds.max.y.toFixed(2)}], ` +
+      `Z[${bounds.min.z.toFixed(2)}, ${bounds.max.z.toFixed(2)}]`,
+  );
+
+  // Position camera to view the entire model with a good perspective
+  camera.target = bounds.center;
+
+  // Set radius based on model diagonal with some margin
+  camera.radius = bounds.diagonal * 1.5;
+
+  // Set a nice isometric view angle
+  camera.alpha = -Math.PI / 4; // 45 degrees around Y axis
+  camera.beta = Math.PI / 3; // 60 degrees from horizontal
+
+  // Ensure camera limits are appropriate
+  camera.lowerRadiusLimit = bounds.diagonal * 0.3;
+  camera.upperRadiusLimit = bounds.diagonal * 5;
+  camera.wheelPrecision = bounds.diagonal * 0.01;
+
+  console.log(`  Camera positioned: radius=${camera.radius.toFixed(2)}`);
+};
+
+/**
+ * Create the scene
+ */
 const createScene = async (): Promise<Scene> => {
   // Create a basic scene
   const scene = new Scene(engine);
 
-  // Create a camera
+  // Create a camera with initial position
   const camera = new ArcRotateCamera("camera", -Math.PI / 2, Math.PI / 2.5, 10, Vector3.Zero(), scene);
   camera.attachControl(canvas, true);
+
+  // Set some reasonable camera limits (will be updated when model loads)
+  camera.lowerRadiusLimit = 1;
+  camera.upperRadiusLimit = 1000;
+  camera.wheelPrecision = 10;
 
   // Create a light
   const light = new HemisphericLight("light", new Vector3(0, 1, 0), scene);
   light.intensity = 0.7;
 
-  // After creating the scene...
+  // Setup picking handler for IFC elements (if API is available)
+  if (ifcAPI) {
+    setupPickingHandler(scene, ifcAPI);
+  }
+
+  // After creating the scene, try to load initial IFC file
   if (ifcAPI) {
     try {
-      const { meshes: initialMeshes, modelID } = await loadAndRenderIfc(ifcAPI, "/test.ifc", scene);
+      console.log("\n📦 Loading initial IFC file: /test.ifc");
+
+      // Load the IFC file with auto-centering enabled
+      const {
+        meshes: initialMeshes,
+        modelID,
+        rootNode,
+        stats,
+      } = await loadAndRenderIfc(ifcAPI, "/test.ifc", scene, {
+        autoCenter: true, // Auto-center the model at origin
+        verbose: true, // Show detailed loading information
+        generateNormals: false,
+        coordinateToOrigin: true,
+      });
+
       currentIfcMeshes = initialMeshes;
       currentModelID = modelID;
+      currentRootNode = rootNode;
+
       console.log(`✓ Loaded ${currentIfcMeshes.length} IFC meshes (Model ID: ${modelID})`);
+      console.log(`  Load time: ${stats.loadTimeMs.toFixed(2)}ms`);
+      console.log(`  Triangles: ${stats.triangleCount.toLocaleString()}`);
 
       // Adjust camera to view the loaded model
       if (currentIfcMeshes.length > 0) {
         adjustCameraToMeshes(currentIfcMeshes, camera);
       }
     } catch (error) {
-      console.error("Failed to load IFC file:", error);
+      console.error("Failed to load initial IFC file:", error);
+      console.log("  You can drag and drop an IFC file to load it");
     }
   }
 
+  // Show inspector for debugging (optional)
   ShowInspector(scene);
-
-  // Setup picking handler for IFC elements
-  if (ifcAPI) {
-    setupPickingHandler(scene, ifcAPI);
-  }
 
   return scene;
 };
@@ -319,12 +311,14 @@ if (ifcAPI) {
     e.preventDefault();
     e.stopPropagation();
     canvas.style.opacity = "0.5";
+    canvas.style.border = "2px dashed #00aaff";
   });
 
   canvas.addEventListener("dragleave", (e) => {
     e.preventDefault();
     e.stopPropagation();
     canvas.style.opacity = "1";
+    canvas.style.border = "none";
   });
 
   // Handle file drop
@@ -332,6 +326,7 @@ if (ifcAPI) {
     e.preventDefault();
     e.stopPropagation();
     canvas.style.opacity = "1";
+    canvas.style.border = "none";
 
     const files = e.dataTransfer?.files;
     if (!files || files.length === 0) return;
@@ -362,15 +357,23 @@ if (ifcAPI) {
 
         currentIfcMeshes = [];
         currentModelID = null;
+        currentRootNode = null;
       }
 
       // Hide upper text and clear highlight when loading new model
       hideUpperTextAndClearHighlight();
 
-      // Load the new IFC file
-      const { meshes, modelID } = await loadAndRenderIfc(ifcAPI, file, scene);
+      // Load the new IFC file with auto-centering
+      const { meshes, modelID, rootNode, stats } = await loadAndRenderIfc(ifcAPI, file, scene, {
+        autoCenter: true,
+        verbose: true,
+        generateNormals: false,
+        coordinateToOrigin: true,
+      });
+
       currentIfcMeshes = meshes;
       currentModelID = modelID;
+      currentRootNode = rootNode;
 
       // Adjust camera to view the loaded model
       const camera = scene.activeCamera as ArcRotateCamera;
@@ -378,10 +381,27 @@ if (ifcAPI) {
         adjustCameraToMeshes(meshes, camera);
       }
 
-      console.log(`✅ Successfully loaded ${file.name}\n`);
+      console.log(`✅ Successfully loaded ${file.name}`);
+      console.log(
+        `  Statistics: ${meshes.length} meshes, ${stats.triangleCount.toLocaleString()} triangles, ${stats.loadTimeMs.toFixed(2)}ms\n`,
+      );
     } catch (error) {
       console.error("Failed to load IFC file:", error);
       alert(`Failed to load IFC file: ${error}`);
     }
   });
 }
+
+// Add a reset camera button or functionality (optional)
+const resetCamera = () => {
+  if (currentIfcMeshes.length > 0) {
+    const camera = scene.activeCamera as ArcRotateCamera;
+    if (camera) {
+      adjustCameraToMeshes(currentIfcMeshes, camera);
+      console.log("Camera reset to view full model");
+    }
+  }
+};
+
+// You can call resetCamera() from a button if needed
+// Example: document.getElementById("reset-camera")?.addEventListener("click", resetCamera);
