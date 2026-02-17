@@ -10,7 +10,7 @@ import {
   StandardMaterial,
   VertexBuffer,
 } from "@babylonjs/core";
-import { RawIfcModel, RawGeometryPart } from "./ifcLoader";
+import type { RawIfcModel, RawGeometryPart } from "./ifcLoader";
 
 // ============================================================================
 // TYPE DEFINITIONS
