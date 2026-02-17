@@ -16,6 +16,7 @@
   "dependencies": {
     "@babylonjs/core": "^8.51.2",
     "@babylonjs/inspector": "^8.51.2",
+    "@babylonjs/materials": "^8.51.2",
     "web-ifc": "^0.0.75"
   }
 }

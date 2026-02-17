@@ -5,6 +5,8 @@ import {
   cleanupIfcModel,
   getModelBounds,
   centerModelAtOrigin,
+  createGroundBelowModel,
+  updateGroundPosition,
 } from "./ifcLoader";
 import {
   Engine,
@@ -15,6 +17,10 @@ import {
   AbstractMesh,
   Color3,
   TransformNode,
+  GroundMesh,
+  Texture,
+  Tools,
+  MeshBuilder,
 } from "@babylonjs/core";
 import { ShowInspector } from "@babylonjs/inspector";
 
@@ -25,6 +31,7 @@ let ifcAPI: any = null;
 let currentIfcMeshes: AbstractMesh[] = [];
 let currentModelID: number | null = null;
 let currentRootNode: TransformNode | null = null;
+let currentGround: GroundMesh | null = null; // Add ground reference
 
 // Store currently highlighted mesh
 let currentHighlightedMesh: AbstractMesh | null = null;
@@ -225,6 +232,31 @@ const adjustCameraToMeshes = (meshes: AbstractMesh[], camera: ArcRotateCamera) =
 };
 
 /**
+ * Create or update ground based on loaded model
+ */
+const setupGroundForModel = (scene: Scene, meshes: AbstractMesh[]) => {
+  // Remove old ground if it exists
+  if (currentGround) {
+    currentGround.dispose();
+    currentGround = null;
+  }
+
+  // Create new ground positioned below the model
+  currentGround = createGroundBelowModel(scene, meshes, {
+    size: 1000,
+    offset: 2.0, // Position ground 2 units below model bottom
+    gridRatio: 0.01,
+    majorUnitFrequency: 10,
+    opacity: 0.8,
+    color: new Color3(0.9, 0.9, 0.9),
+  });
+
+  if (currentGround) {
+    console.log(`✓ Ground created and positioned`);
+  }
+};
+
+/**
  * Create the scene
  */
 const createScene = async (): Promise<Scene> => {
@@ -275,6 +307,9 @@ const createScene = async (): Promise<Scene> => {
       console.log(`  Load time: ${stats.loadTimeMs.toFixed(2)}ms`);
       console.log(`  Triangles: ${stats.triangleCount.toLocaleString()}`);
 
+      // Create ground positioned below the model
+      setupGroundForModel(scene, currentIfcMeshes);
+
       // Adjust camera to view the loaded model
       if (currentIfcMeshes.length > 0) {
         adjustCameraToMeshes(currentIfcMeshes, camera);
@@ -286,7 +321,7 @@ const createScene = async (): Promise<Scene> => {
   }
 
   // Show inspector for debugging (optional)
-  ShowInspector(scene);
+  // ShowInspector(scene);
 
   return scene;
 };
@@ -350,6 +385,12 @@ if (ifcAPI) {
         // Dispose all meshes, materials, and the ifc-root node
         disposeIfcScene(scene);
 
+        // Dispose ground
+        if (currentGround) {
+          currentGround.dispose();
+          currentGround = null;
+        }
+
         // Close the IFC model and free WASM memory
         if (currentModelID !== null) {
           cleanupIfcModel(ifcAPI, currentModelID);
@@ -374,6 +415,9 @@ if (ifcAPI) {
       currentIfcMeshes = meshes;
       currentModelID = modelID;
       currentRootNode = rootNode;
+
+      // Create ground positioned below the new model
+      setupGroundForModel(scene, currentIfcMeshes);
 
       // Adjust camera to view the loaded model
       const camera = scene.activeCamera as ArcRotateCamera;

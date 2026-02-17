@@ -10,6 +10,10 @@ import {
   Color3,
   StandardMaterial,
   VertexBuffer,
+  GroundMesh,
+  Texture,
+  Tools,
+  MeshBuilder,
 } from "@babylonjs/core";
 import { extractIfcMetadata } from "./ifcMetadata";
 
@@ -687,7 +691,7 @@ export function getModelBounds(meshes: AbstractMesh[]): {
 
     // Force update of bounding info
     mesh.computeWorldMatrix(true);
-    mesh.refreshBoundingInfo();
+    mesh.refreshBoundingInfo(false, false);
 
     // Get the bounding info
     const boundingInfo = mesh.getBoundingInfo();
@@ -742,4 +746,104 @@ export function centerModelAtOrigin(meshes: AbstractMesh[], rootNode?: Transform
   );
 
   return offset;
+}
+
+//
+/**
+ * Create a ground plane positioned slightly below the model
+ * @param scene The Babylon.js scene
+ * @param meshes Array of meshes to determine model bounds
+ * @param options Configuration options for the ground
+ * @returns The created ground mesh
+ */
+export function createGroundBelowModel(
+  scene: Scene,
+  meshes: AbstractMesh[],
+  options?: {
+    size?: number;
+    offset?: number;
+    gridRatio?: number;
+    majorUnitFrequency?: number;
+    opacity?: number;
+    color?: Color3;
+  },
+): GroundMesh | null {
+  // Get model bounds
+  const bounds = getModelBounds(meshes);
+  if (!bounds) {
+    console.warn("Cannot create ground: No valid model bounds");
+    return null;
+  }
+
+  // Set default options
+  const size = options?.size ?? 1000;
+  const offset = options?.offset ?? 2.0; // Position ground 2 units below model by default
+  const gridRatio = options?.gridRatio ?? 0.01;
+  const majorUnitFrequency = options?.majorUnitFrequency ?? 10;
+  const opacity = options?.opacity ?? 0.8;
+  const color = options?.color ?? new Color3(1, 1, 1);
+
+  // Calculate ground Y position (slightly below the model's bottom)
+  const groundY = bounds.min.y - offset;
+
+  console.log(
+    `📍 Positioning ground at Y = ${groundY.toFixed(2)} (model bottom: ${bounds.min.y.toFixed(2)}, offset: ${offset})`,
+  );
+
+  // Create the ground
+  const ground = MeshBuilder.CreateGround(
+    "ifc-ground",
+    {
+      width: size,
+      height: size,
+      subdivisions: 100, // Good for grid visibility
+    },
+    scene,
+  );
+
+  // Position the ground
+  ground.position = new Vector3(bounds.center.x, groundY, bounds.center.z);
+
+  // Create and configure grid material
+  const groundMaterial = new GridMaterial("ifc-ground-material", scene);
+
+  // Grid appearance settings
+  groundMaterial.majorUnitFrequency = majorUnitFrequency;
+  groundMaterial.minorUnitVisibility = 0.3;
+  groundMaterial.gridRatio = gridRatio;
+  groundMaterial.backFaceCulling = false;
+  groundMaterial.mainColor = color;
+  groundMaterial.lineColor = color;
+  groundMaterial.opacity = opacity;
+
+  // Add subtle transparency texture for better visibility
+  const textureUrl = Tools.GetAssetUrl("https://assets.babylonjs.com/core/environments/backgroundGround.png");
+  groundMaterial.opacityTexture = new Texture(textureUrl, scene);
+
+  // Prevent z-fighting with model
+  groundMaterial.zOffset = 1.0;
+
+  ground.material = groundMaterial;
+
+  // Make ground receive shadows (if you add shadows later)
+  ground.receiveShadows = true;
+
+  console.log(`✓ Ground created: ${size}x${size} at Y=${groundY.toFixed(2)}`);
+
+  return ground;
+}
+
+/**
+ * Update ground position if model moves or changes
+ */
+export function updateGroundPosition(ground: GroundMesh, meshes: AbstractMesh[], offset: number = 2.0): boolean {
+  const bounds = getModelBounds(meshes);
+  if (!bounds || !ground) return false;
+
+  const groundY = bounds.min.y - offset;
+  ground.position.y = groundY;
+  ground.position.x = bounds.center.x;
+  ground.position.z = bounds.center.z;
+
+  return true;
 }
