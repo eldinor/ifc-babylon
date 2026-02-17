@@ -1,59 +1,85 @@
 import * as WebIFC from "web-ifc";
-import {
-  Scene,
-  Mesh,
-  VertexData,
-  Matrix,
-  AbstractMesh,
-  TransformNode,
-  Vector3,
-  Color3,
-  StandardMaterial,
-  VertexBuffer,
-} from "@babylonjs/core";
-import { extractIfcMetadata } from "./ifcMetadata";
 
-// Interface for mesh with color information
-interface MeshWithColor {
-  mesh: Mesh;
-  colorId: number;
+// ============================================================================
+// TYPE DEFINITIONS - Intermediate Data Contract
+// ============================================================================
+
+/** Single piece of placed geometry from web-ifc */
+export interface RawGeometryPart {
+  expressID: number;
+  geometryExpressID: number;
+  positions: Float32Array;
+  normals: Float32Array;
+  indices: Uint32Array;
+  flatTransform: number[];
   color: { x: number; y: number; z: number; w: number } | null;
+  colorId: number;
 }
 
-// Configuration interface for better flexibility
+/** Complete raw model returned by loadIfcModel */
+export interface RawIfcModel {
+  modelID: number;
+  parts: RawGeometryPart[];
+  storeyMap: Map<number, number>;
+  rawStats: {
+    partCount: number;
+    vertexCount: number;
+    triangleCount: number;
+  };
+}
+
+/** Configuration for IFC loader */
 export interface IfcLoaderOptions {
-  /** Merge meshes with same material to reduce draw calls */
-  mergeMeshes?: boolean;
-  /** Generate smooth normals if missing */
-  generateNormals?: boolean;
-  /** Use PBR materials for better rendering */
-  usePBR?: boolean;
-  /** Coordinate to origin transformation */
-  coordinateToOrigin?: boolean;
-  /** Logging verbosity */
-  verbose?: boolean;
-  /** Progress callback */
-  onProgress?: (current: number, total: number) => void;
-  /** Batch size for geometry processing */
-  batchSize?: number;
-  /** Enable double-sided rendering */
-  doubleSided?: boolean;
-  /** Maximum texture size for generated materials */
-  maxTextureSize?: number;
-  /** Automatically center the model at origin */
-  autoCenter?: boolean;
+  coordinateToOrigin?: boolean; // web-ifc COORDINATE_TO_ORIGIN (default: true)
+  verbose?: boolean; // console logging (default: true)
 }
 
-// Statistics for performance monitoring
-export interface LoaderStats {
-  originalMeshCount: number;
-  mergedMeshCount: number;
-  vertexCount: number;
-  triangleCount: number;
-  materialCount: number;
-  loadTimeMs: number;
-  memoryUsageMB?: number;
+/** Metadata extracted from IFC file */
+export interface MetadataResult {
+  projectName: string | null;
+  projectDescription: string | null;
+  software: string | null;
+  author: string | null;
+  organization: string | null;
 }
+
+/** Building information */
+export interface BuildingInfo {
+  id: number;
+  name: string;
+  longName: string;
+  description: string;
+  elevation?: number;
+}
+
+/** Unit information */
+export interface UnitInfo {
+  type: number;
+  unitType?: string;
+  name?: string;
+  prefix?: string;
+  value?: number;
+}
+
+/** Property information */
+export interface PropertyInfo {
+  name?: string;
+  description?: string;
+  value?: any;
+  type?: number;
+}
+
+/** Property set information */
+export interface PropertySetInfo {
+  id: number;
+  name?: string;
+  description?: string;
+  properties: PropertyInfo[];
+}
+
+// ============================================================================
+// PUBLIC API - Initialization
+// ============================================================================
 
 /**
  * Initialize the web-ifc API
@@ -82,13 +108,241 @@ export async function initializeWebIFC(
   return ifcAPI;
 }
 
+// ============================================================================
+// PUBLIC API - Model Loading
+// ============================================================================
+
 /**
- * Load an IFC file from a URL or File object with progress tracking
+ * Load an IFC file and extract raw geometry data
+ * Returns a RawIfcModel with no Babylon.js dependencies
  */
-async function loadIfcFile(
+export async function loadIfcModel(
   ifcAPI: WebIFC.IfcAPI,
   source: string | File,
   options: IfcLoaderOptions = {},
+): Promise<RawIfcModel> {
+  const opts: IfcLoaderOptions = {
+    coordinateToOrigin: true,
+    verbose: true,
+    ...options,
+  };
+
+  // Step 1: Open the model
+  const modelID = await openModel(ifcAPI, source, opts);
+
+  // Step 2: Stream geometry and extract raw data
+  const { parts, rawStats } = streamGeometry(ifcAPI, modelID, opts);
+
+  // Step 3: Build storey map for spatial context
+  const storeyMap = buildStoreyMap(ifcAPI, modelID);
+
+  if (opts.verbose) {
+    console.log(`\n📊 Raw Model Statistics:`);
+    console.log(`  Parts extracted: ${rawStats.partCount}`);
+    console.log(`  Vertices: ${rawStats.vertexCount.toLocaleString()}`);
+    console.log(`  Triangles: ${rawStats.triangleCount.toLocaleString()}`);
+    console.log(`  Storey relationships: ${storeyMap.size}`);
+  }
+
+  return {
+    modelID,
+    parts,
+    storeyMap,
+    rawStats,
+  };
+}
+
+/**
+ * Close IFC model and free memory
+ */
+export function closeIfcModel(ifcAPI: WebIFC.IfcAPI, modelID: number): void {
+  if (ifcAPI.IsModelOpen(modelID)) {
+    ifcAPI.CloseModel(modelID);
+    console.log(`✓ Model ${modelID} closed and memory freed`);
+  }
+}
+
+// ============================================================================
+// PUBLIC API - Metadata Extraction
+// ============================================================================
+
+/**
+ * Extract high-level IFC metadata (project, software, author, organization)
+ */
+export function extractMetadata(ifcAPI: WebIFC.IfcAPI, modelID: number): MetadataResult {
+  const metadata: MetadataResult = {
+    projectName: null,
+    projectDescription: null,
+    software: null,
+    author: null,
+    organization: null,
+  };
+
+  try {
+    // Get all lines of type IFCPROJECT
+    const projects = ifcAPI.GetLineIDsWithType(modelID, WebIFC.IFCPROJECT);
+    if (projects.size() > 0) {
+      const projectID = projects.get(0);
+      const project = ifcAPI.GetLine(modelID, projectID);
+
+      if (project) {
+        metadata.projectName = project.Name?.value || project.LongName?.value || null;
+        metadata.projectDescription = project.Description?.value || null;
+      }
+    }
+
+    // Get IFCAPPLICATION for software info
+    const applications = ifcAPI.GetLineIDsWithType(modelID, WebIFC.IFCAPPLICATION);
+    if (applications.size() > 0) {
+      const appID = applications.get(0);
+      const app = ifcAPI.GetLine(modelID, appID);
+
+      if (app) {
+        metadata.software = app.ApplicationFullName?.value || app.ApplicationIdentifier?.value || null;
+      }
+    }
+
+    // Get IFCPERSON for author info
+    const persons = ifcAPI.GetLineIDsWithType(modelID, WebIFC.IFCPERSON);
+    if (persons.size() > 0) {
+      const personID = persons.get(0);
+      const person = ifcAPI.GetLine(modelID, personID);
+
+      if (person) {
+        const givenName = person.GivenName?.value || "";
+        const familyName = person.FamilyName?.value || "";
+        const id = person.Identification?.value || "";
+        metadata.author = [givenName, familyName, id].filter(Boolean).join(" ") || null;
+      }
+    }
+
+    // Get IFCORGANIZATION
+    const organizations = ifcAPI.GetLineIDsWithType(modelID, WebIFC.IFCORGANIZATION);
+    if (organizations.size() > 0) {
+      const orgID = organizations.get(0);
+      const org = ifcAPI.GetLine(modelID, orgID);
+
+      if (org) {
+        metadata.organization = org.Name?.value || null;
+      }
+    }
+  } catch (error) {
+    console.warn("Error extracting IFC metadata:", error);
+  }
+
+  return metadata;
+}
+
+/**
+ * Get building information from IFC file
+ */
+export async function getBuildingInfo(
+  ifcAPI: WebIFC.IfcAPI,
+  modelID: number,
+): Promise<BuildingInfo[]> {
+  const buildings = ifcAPI.GetLineIDsWithType(modelID, WebIFC.IFCBUILDING);
+  const buildingList: BuildingInfo[] = [];
+
+  for (let i = 0; i < buildings.size(); i++) {
+    const buildingID = buildings.get(i);
+    const building = await ifcAPI.GetLine(modelID, buildingID);
+
+    buildingList.push({
+      id: buildingID,
+      name: building.Name?.value || "",
+      longName: building.LongName?.value || "",
+      description: building.Description?.value || "",
+      elevation: building.ElevationOfRefHeight?.value,
+    });
+  }
+
+  return buildingList;
+}
+
+/**
+ * Get project units from IFC file
+ */
+export async function getProjectUnits(
+  ifcAPI: WebIFC.IfcAPI,
+  modelID: number,
+): Promise<UnitInfo[] | null> {
+  const projects = ifcAPI.GetLineIDsWithType(modelID, WebIFC.IFCPROJECT);
+  if (projects.size() === 0) return null;
+
+  const project = await ifcAPI.GetLine(modelID, projects.get(0));
+  if (!project.UnitsInContext) return null;
+
+  const unitAssignment = await ifcAPI.GetLine(modelID, project.UnitsInContext.value);
+  const units: UnitInfo[] = [];
+
+  // Parse units
+  if (unitAssignment.Units) {
+    for (const unitRef of unitAssignment.Units) {
+      if (unitRef.value) {
+        const unit = await ifcAPI.GetLine(modelID, unitRef.value);
+        units.push({
+          type: unit.type,
+          unitType: unit.UnitType?.value,
+          name: unit.Name?.value,
+          prefix: unit.Prefix?.value,
+          value: unit.Value?.value,
+        });
+      }
+    }
+  }
+
+  return units;
+}
+
+/**
+ * Get all property sets from IFC model
+ */
+export async function getAllPropertySets(
+  ifcAPI: WebIFC.IfcAPI,
+  modelID: number,
+): Promise<PropertySetInfo[]> {
+  const propertySets: PropertySetInfo[] = [];
+  const propertySetIds = new Set<number>();
+
+  try {
+    // Get all IFCPROPERTYSET entities directly
+    const propSetLines = ifcAPI.GetLineIDsWithType(modelID, WebIFC.IFCPROPERTYSET);
+
+    for (let i = 0; i < propSetLines.size(); i++) {
+      const propSetID = propSetLines.get(i);
+
+      // Skip if we've already processed this property set
+      if (propertySetIds.has(propSetID)) continue;
+      propertySetIds.add(propSetID);
+
+      const propSet = await ifcAPI.GetLine(modelID, propSetID);
+      const properties = await getPropertiesFromSet(ifcAPI, modelID, propSet);
+
+      propertySets.push({
+        id: propSetID,
+        name: propSet.Name?.value,
+        description: propSet.Description?.value,
+        properties,
+      });
+    }
+  } catch (error) {
+    console.warn("Error extracting property sets:", error);
+  }
+
+  return propertySets;
+}
+
+// ============================================================================
+// PRIVATE HELPERS - Model Loading
+// ============================================================================
+
+/**
+ * Open an IFC model from URL or File
+ */
+async function openModel(
+  ifcAPI: WebIFC.IfcAPI,
+  source: string | File,
+  options: IfcLoaderOptions,
 ): Promise<number> {
   let data: ArrayBuffer;
 
@@ -127,6 +381,107 @@ async function loadIfcFile(
   }
 
   return modelID;
+}
+
+/**
+ * Stream geometry and extract raw data (no Babylon.js dependencies)
+ */
+function streamGeometry(
+  ifcAPI: WebIFC.IfcAPI,
+  modelID: number,
+  options: IfcLoaderOptions,
+): { parts: RawGeometryPart[]; rawStats: { partCount: number; vertexCount: number; triangleCount: number } } {
+  const parts: RawGeometryPart[] = [];
+  let totalVertices = 0;
+  let totalTriangles = 0;
+
+  // Stream all meshes
+  ifcAPI.StreamAllMeshes(modelID, (flatMesh: WebIFC.FlatMesh) => {
+    const placedGeometries = flatMesh.geometries;
+
+    for (let i = 0; i < placedGeometries.size(); i++) {
+      const placedGeometry = placedGeometries.get(i);
+
+      // Skip invalid geometries
+      if (!placedGeometry || placedGeometry.geometryExpressID === undefined) continue;
+
+      // Get geometry data
+      const geometry = ifcAPI.GetGeometry(modelID, placedGeometry.geometryExpressID);
+      if (!geometry) continue;
+
+      try {
+        const verts = ifcAPI.GetVertexArray(geometry.GetVertexData(), geometry.GetVertexDataSize());
+        const indices = ifcAPI.GetIndexArray(geometry.GetIndexData(), geometry.GetIndexDataSize());
+
+        if (verts.length === 0 || indices.length === 0) {
+          (geometry as any)?.delete?.();
+          continue;
+        }
+
+        // Extract positions and normals
+        const numVertices = verts.length / 6;
+        const positions = new Float32Array(numVertices * 3);
+        const normals = new Float32Array(numVertices * 3);
+
+        for (let v = 0; v < numVertices; v++) {
+          positions[v * 3] = verts[v * 6];
+          positions[v * 3 + 1] = verts[v * 6 + 1];
+          positions[v * 3 + 2] = verts[v * 6 + 2];
+          normals[v * 3] = verts[v * 6 + 3];
+          normals[v * 3 + 1] = verts[v * 6 + 4];
+          normals[v * 3 + 2] = verts[v * 6 + 5];
+        }
+
+        // Get color information
+        const color = placedGeometry.color;
+        let colorId: number;
+        if (color) {
+          colorId =
+            Math.floor(color.x * 255) +
+            Math.floor(color.y * 255) * 256 +
+            Math.floor(color.z * 255) * 256 * 256 +
+            Math.floor(color.w * 255) * 256 * 256 * 256;
+        } else {
+          colorId = 0; // Default color
+        }
+
+        // Store raw geometry part
+        parts.push({
+          expressID: flatMesh.expressID,
+          geometryExpressID: placedGeometry.geometryExpressID,
+          positions,
+          normals,
+          indices: new Uint32Array(indices),
+          flatTransform: Array.from(placedGeometry.flatTransformation),
+          color,
+          colorId,
+        });
+
+        // Update stats
+        totalVertices += numVertices;
+        totalTriangles += indices.length / 3;
+
+        // Clean up WASM memory
+        (geometry as any)?.delete?.();
+      } catch (error) {
+        console.error(`Error processing geometry:`, error);
+        (geometry as any)?.delete?.();
+      }
+    }
+  });
+
+  if (options.verbose) {
+    console.log(`\n📦 Collected ${parts.length} geometry parts`);
+  }
+
+  return {
+    parts,
+    rawStats: {
+      partCount: parts.length,
+      vertexCount: totalVertices,
+      triangleCount: totalTriangles,
+    },
+  };
 }
 
 /**
@@ -189,557 +544,33 @@ function buildStoreyMap(ifcAPI: WebIFC.IfcAPI, modelID: number): Map<number, num
   return elementToStorey;
 }
 
-/**
- * Check if meshes can be safely merged based on spatial context
- */
-function canMergeMeshes(meshes: Mesh[], elementToStorey: Map<number, number>): boolean {
-  const storeyIDs = new Set<number>();
-
-  meshes.forEach((mesh) => {
-    const expressID = mesh.metadata?.expressID;
-    if (expressID !== undefined) {
-      const storeyID = elementToStorey.get(expressID);
-      if (storeyID) {
-        storeyIDs.add(storeyID);
-      }
-    }
-  });
-
-  // Allow merge ONLY if all parts belong to same storey OR no storey assignment
-  return storeyIDs.size <= 1;
-}
+// ============================================================================
+// PRIVATE HELPERS - Metadata
+// ============================================================================
 
 /**
- * Load IFC geometry and convert to Babylon.js meshes with intelligent merging
+ * Get properties from a property set
  */
-function loadIfcGeometryAsMeshes(
+async function getPropertiesFromSet(
   ifcAPI: WebIFC.IfcAPI,
   modelID: number,
-  scene: Scene,
-  options: IfcLoaderOptions = {},
-): { meshes: AbstractMesh[]; stats: LoaderStats; rootNode: TransformNode } {
-  const startTime = performance.now();
+  propertySet: any,
+): Promise<PropertyInfo[]> {
+  const properties: PropertyInfo[] = [];
 
-  // Create root transform node for better organization
-  const rootNode = new TransformNode("ifc-root", scene);
-
-  // Statistics
-  const stats: LoaderStats = {
-    originalMeshCount: 0,
-    mergedMeshCount: 0,
-    vertexCount: 0,
-    triangleCount: 0,
-    materialCount: 0,
-    loadTimeMs: 0,
-  };
-
-  // Track bounds for camera framing
-  let boundsMin = { x: Infinity, y: Infinity, z: Infinity };
-  let boundsMax = { x: -Infinity, y: -Infinity, z: -Infinity };
-
-  // Collect all meshes with their color information
-  const meshesWithColor: MeshWithColor[] = [];
-
-  // Stream all meshes
-  ifcAPI.StreamAllMeshes(modelID, (flatMesh: WebIFC.FlatMesh) => {
-    const placedGeometries = flatMesh.geometries;
-
-    for (let i = 0; i < placedGeometries.size(); i++) {
-      const placedGeometry = placedGeometries.get(i);
-
-      // Skip invalid geometries
-      if (!placedGeometry || placedGeometry.geometryExpressID === undefined) continue;
-
-      // Get geometry data
-      const geometry = ifcAPI.GetGeometry(modelID, placedGeometry.geometryExpressID);
-      if (!geometry) continue;
-
-      try {
-        const verts = ifcAPI.GetVertexArray(geometry.GetVertexData(), geometry.GetVertexDataSize());
-        const indices = ifcAPI.GetIndexArray(geometry.GetIndexData(), geometry.GetIndexDataSize());
-
-        if (verts.length === 0 || indices.length === 0) {
-          (geometry as any)?.delete?.();
-          continue;
-        }
-
-        stats.originalMeshCount++;
-        stats.vertexCount += verts.length / 6; // 6 components per vertex (pos + normal)
-        stats.triangleCount += indices.length / 3;
-
-        // Extract positions and normals
-        const numVertices = verts.length / 6;
-        const positions = new Float32Array(numVertices * 3);
-        const normals = new Float32Array(numVertices * 3);
-
-        for (let v = 0; v < numVertices; v++) {
-          positions[v * 3] = verts[v * 6];
-          positions[v * 3 + 1] = verts[v * 6 + 1];
-          positions[v * 3 + 2] = verts[v * 6 + 2];
-          normals[v * 3] = verts[v * 6 + 3];
-          normals[v * 3 + 1] = verts[v * 6 + 4];
-          normals[v * 3 + 2] = verts[v * 6 + 5];
-
-          // Update bounds (local space for now)
-          const x = verts[v * 6];
-          const y = verts[v * 6 + 1];
-          const z = verts[v * 6 + 2];
-          boundsMin.x = Math.min(boundsMin.x, x);
-          boundsMin.y = Math.min(boundsMin.y, y);
-          boundsMin.z = Math.min(boundsMin.z, z);
-          boundsMax.x = Math.max(boundsMax.x, x);
-          boundsMax.y = Math.max(boundsMax.y, y);
-          boundsMax.z = Math.max(boundsMax.z, z);
-        }
-
-        // Generate normals if needed
-        if (options.generateNormals && normals.every((v) => v === 0)) {
-          const tempNormals: number[] = [];
-          VertexData.ComputeNormals(Array.from(positions), Array.from(indices), tempNormals);
-          for (let n = 0; n < tempNormals.length; n++) {
-            normals[n] = tempNormals[n];
-          }
-        }
-
-        // Get the expressID and color from the flatMesh
-        const expressID = flatMesh.expressID;
-        const color = placedGeometry.color;
-
-        // Calculate color ID
-        let colorId: number;
-        if (color) {
-          colorId =
-            Math.floor(color.x * 255) +
-            Math.floor(color.y * 255) * 256 +
-            Math.floor(color.z * 255) * 256 * 256 +
-            Math.floor(color.w * 255) * 256 * 256 * 256;
-        } else {
-          colorId = 0; // Default color
-        }
-
-        // Create mesh name (temporary, will be updated after merging)
-        const meshName = `ifc-${expressID}-part-${i}`;
-
-        // Create mesh
-        const mesh = new Mesh(meshName, scene);
-        mesh.parent = rootNode;
-
-        // Add metadata with expressID and modelID
-        mesh.metadata = {
-          expressID: expressID,
-          modelID: modelID,
-        };
-
-        // Apply vertex data
-        const vertexData = new VertexData();
-        vertexData.positions = Array.from(positions);
-        vertexData.normals = Array.from(normals);
-        vertexData.indices = Array.from(indices);
-        vertexData.applyToMesh(mesh);
-
-        // Apply transformation
-        const transform = placedGeometry.flatTransformation;
-        if (transform && transform.length === 16) {
-          const matrix = Matrix.FromArray(transform);
-          mesh.bakeTransformIntoVertices(matrix);
-        }
-
-        // Make mesh visible (no material assigned yet)
-        mesh.isVisible = true;
-
-        // Store mesh with color information
-        meshesWithColor.push({
-          mesh: mesh,
-          colorId: colorId,
-          color: color,
+  if (propertySet.HasProperties) {
+    for (const propRef of propertySet.HasProperties) {
+      if (propRef.value) {
+        const prop = await ifcAPI.GetLine(modelID, propRef.value);
+        properties.push({
+          name: prop.Name?.value,
+          description: prop.Description?.value,
+          value: prop.NominalValue?.value,
+          type: prop.NominalValue?.type,
         });
-
-        // Clean up WASM memory
-        (geometry as any)?.delete?.();
-      } catch (error) {
-        console.error(`Error processing geometry:`, error);
-        (geometry as any)?.delete?.();
       }
     }
-  });
-
-  console.log(`\n📦 Collected ${meshesWithColor.length} mesh parts`);
-
-  // Build storey map for spatial context
-  const elementToStorey = buildStoreyMap(ifcAPI, modelID);
-  console.log(`📍 Built storey map with ${elementToStorey.size} element-storey relationships`);
-
-  // Step 1: Group by (expressID + colorId)
-  const groupKey = (expressID: number, colorId: number) => `${expressID}-${colorId}`;
-  const meshGroups = new Map<string, MeshWithColor[]>();
-
-  meshesWithColor.forEach((item) => {
-    const expressID = item.mesh.metadata!.expressID;
-    const key = groupKey(expressID, item.colorId);
-
-    if (!meshGroups.has(key)) {
-      meshGroups.set(key, []);
-    }
-    meshGroups.get(key)!.push(item);
-  });
-
-  console.log(`🔗 Grouped into ${meshGroups.size} unique (expressID + material) combinations`);
-
-  // Step 2: Create materials and merge groups with safety checks
-  const materialCache = new Map<number, StandardMaterial>();
-  const finalMeshes: AbstractMesh[] = [];
-  let mergedCount = 0;
-  let skippedCount = 0;
-  let materialZOffset = 0; // Counter for z-offset to prevent z-fighting
-
-  // Helper function to get or create material
-  const getMaterial = (
-    colorId: number,
-    color: { x: number; y: number; z: number; w: number } | null,
-  ): StandardMaterial => {
-    if (materialCache.has(colorId)) {
-      return materialCache.get(colorId)!;
-    }
-
-    const material = new StandardMaterial(`ifc-material-${colorId}`, scene);
-
-    if (color) {
-      material.diffuseColor = new Color3(color.x, color.y, color.z);
-      material.alpha = color.w;
-    } else {
-      // Default gray color
-      material.diffuseColor = new Color3(0.8, 0.8, 0.8);
-    }
-
-    // Add z-offset to prevent z-fighting between overlapping surfaces
-    material.zOffset = materialZOffset;
-    materialZOffset += 0.1; // Increment for next material
-
-    // Enable backface culling for better performance
-    material.backFaceCulling = false;
-
-    materialCache.set(colorId, material);
-    return material;
-  };
-
-  meshGroups.forEach((group) => {
-    const meshes = group.map((item) => item.mesh);
-    const expressID = meshes[0].metadata!.expressID;
-    const colorId = group[0].colorId;
-    const color = group[0].color;
-
-    // Get or create material for this color
-    const material = getMaterial(colorId, color);
-
-    if (meshes.length === 1) {
-      // Single mesh - no merging needed
-      const mesh = meshes[0];
-      mesh.name = `ifc-${expressID}`;
-      mesh.material = material; // Assign material
-      finalMeshes.push(mesh);
-    } else {
-      // Multiple meshes - check if we can merge
-      const canMerge = canMergeMeshes(meshes, elementToStorey);
-
-      if (canMerge) {
-        // Safe to merge - all parts in same storey or no storey
-        const mergedMesh = Mesh.MergeMeshes(
-          meshes,
-          true, // disposeSource - DISPOSE original meshes
-          true, // allow32BitsIndices
-          undefined, // meshSubclass
-          false, // subdivideWithSubMeshes - NO SUBMESHES!
-          false, // multiMultiMaterials - we handle materials ourselves
-        );
-
-        if (mergedMesh) {
-          mergedMesh.name = `ifc-${expressID}`;
-          mergedMesh.parent = rootNode;
-          mergedMesh.material = material; // Assign material AFTER merging
-
-          // PRESERVE SEMANTIC IDENTITY - copy metadata from first mesh
-          mergedMesh.metadata = {
-            expressID: expressID,
-            modelID: modelID,
-          };
-
-          mergedMesh.isVisible = true;
-          finalMeshes.push(mergedMesh);
-          mergedCount++;
-        } else {
-          // Merge failed - keep original meshes
-          meshes.forEach((mesh) => {
-            mesh.name = `ifc-${expressID}`;
-            mesh.material = material; // Assign material
-            finalMeshes.push(mesh);
-          });
-          skippedCount++;
-        }
-      } else {
-        // Cannot merge - different storeys
-        meshes.forEach((mesh) => {
-          mesh.name = `ifc-${expressID}`;
-          mesh.material = material; // Assign material
-          finalMeshes.push(mesh);
-        });
-        skippedCount++;
-        console.log(`  ⚠ Skipped merging ${meshes.length} parts for expressID ${expressID} (different storeys)`);
-      }
-    }
-  });
-
-  console.log(`\n✅ Merging complete:`);
-  console.log(`  Original parts: ${meshesWithColor.length}`);
-  console.log(`  Merged groups: ${mergedCount}`);
-  console.log(`  Skipped groups: ${skippedCount}`);
-  console.log(`  Final meshes: ${finalMeshes.length}`);
-  console.log(`  Materials created: ${materialCache.size}`);
-
-  // Apply Z-axis flip for coordinate system conversion (IFC to Babylon)
-  rootNode.scaling.z = -1;
-
-  // Force update of world matrix to apply scaling
-  rootNode.computeWorldMatrix(true);
-
-  // Recalculate bounds in world space after scaling
-  boundsMin = { x: Infinity, y: Infinity, z: Infinity };
-  boundsMax = { x: -Infinity, y: -Infinity, z: -Infinity };
-
-  finalMeshes.forEach((mesh) => {
-    const worldMatrix = mesh.getWorldMatrix();
-    const vertices = mesh.getVerticesData(VertexBuffer.PositionKind);
-    if (!vertices) return;
-
-    for (let i = 0; i < vertices.length; i += 3) {
-      const localPoint = new Vector3(vertices[i], vertices[i + 1], vertices[i + 2]);
-      const worldPoint = Vector3.TransformCoordinates(localPoint, worldMatrix);
-
-      boundsMin.x = Math.min(boundsMin.x, worldPoint.x);
-      boundsMin.y = Math.min(boundsMin.y, worldPoint.y);
-      boundsMin.z = Math.min(boundsMin.z, worldPoint.z);
-      boundsMax.x = Math.max(boundsMax.x, worldPoint.x);
-      boundsMax.y = Math.max(boundsMax.y, worldPoint.y);
-      boundsMax.z = Math.max(boundsMax.z, worldPoint.z);
-    }
-  });
-
-  // Calculate bounds center in world space
-  const bounds = {
-    min: boundsMin,
-    max: boundsMax,
-    center: {
-      x: (boundsMin.x + boundsMax.x) / 2,
-      y: (boundsMin.y + boundsMax.y) / 2,
-      z: (boundsMin.z + boundsMax.z) / 2,
-    },
-  };
-
-  // Auto-center the model if requested
-  if (options.autoCenter) {
-    const centerOffset = new Vector3(bounds.center.x, bounds.center.y, bounds.center.z);
-    rootNode.position.subtractInPlace(centerOffset);
-
-    // Recalculate bounds after centering
-    boundsMin = { x: boundsMin.x - centerOffset.x, y: boundsMin.y - centerOffset.y, z: boundsMin.z - centerOffset.z };
-    boundsMax = { x: boundsMax.x - centerOffset.x, y: boundsMax.y - centerOffset.y, z: boundsMax.z - centerOffset.z };
-    bounds.center = { x: 0, y: 0, z: 0 };
-
-    console.log(`📍 Model auto-centered at origin`);
   }
 
-  // Update stats
-  stats.mergedMeshCount = finalMeshes.length;
-  stats.materialCount = materialCache.size;
-  stats.loadTimeMs = performance.now() - startTime;
-
-  if (options.verbose) {
-    console.log(`\n📊 Loading Statistics:`);
-    console.log(`  Original parts: ${stats.originalMeshCount}`);
-    console.log(`  Final meshes: ${stats.mergedMeshCount}`);
-    console.log(`  Vertices: ${stats.vertexCount.toLocaleString()}`);
-    console.log(`  Triangles: ${stats.triangleCount.toLocaleString()}`);
-    console.log(`  Materials: ${stats.materialCount}`);
-    console.log(`  Load time: ${stats.loadTimeMs.toFixed(2)}ms`);
-    console.log(
-      `  Bounds: X[${bounds.min.x.toFixed(2)}, ${bounds.max.x.toFixed(2)}] ` +
-        `Y[${bounds.min.y.toFixed(2)}, ${bounds.max.y.toFixed(2)}] ` +
-        `Z[${bounds.min.z.toFixed(2)}, ${bounds.max.z.toFixed(2)}]`,
-    );
-    console.log(
-      `  Center: (${bounds.center.x.toFixed(2)}, ${bounds.center.y.toFixed(2)}, ${bounds.center.z.toFixed(2)})`,
-    );
-  }
-
-  return { meshes: finalMeshes, stats, rootNode };
-}
-
-/**
- * Load and render an IFC file in a Babylon.js scene
- * @returns Object containing meshes and statistics
- */
-export async function loadAndRenderIfc(
-  ifcAPI: WebIFC.IfcAPI,
-  source: string | File,
-  scene: Scene,
-  options: IfcLoaderOptions = {},
-): Promise<{ meshes: AbstractMesh[]; stats: LoaderStats; modelID: number; rootNode: TransformNode }> {
-  const startTime = performance.now();
-
-  // Set defaults
-  const opts: IfcLoaderOptions = {
-    generateNormals: false,
-    coordinateToOrigin: true,
-    verbose: true,
-    autoCenter: true, // Enable auto-centering by default
-    ...options,
-  };
-
-  try {
-    // Load the IFC file
-    const modelID = await loadIfcFile(ifcAPI, source, opts);
-
-    // Extract and display metadata
-    if (opts.verbose) {
-      console.log("\n📋 IFC File Metadata:");
-      const metadata = extractIfcMetadata(ifcAPI, modelID);
-      console.log(`  Project: ${metadata.projectName || "N/A"}`);
-      console.log(`  Description: ${metadata.projectDescription || "N/A"}`);
-      console.log(`  Software: ${metadata.software || "N/A"}`);
-      console.log(`  Author: ${metadata.author || "N/A"}`);
-      console.log(`  Organization: ${metadata.organization || "N/A"}`);
-    }
-
-    // Load geometry and create meshes
-    const { meshes, stats, rootNode } = loadIfcGeometryAsMeshes(ifcAPI, modelID, scene, opts);
-
-    const totalTime = performance.now() - startTime;
-
-    console.log(`\n✓ IFC loaded successfully in ${totalTime.toFixed(2)}ms`);
-    console.log(`  ${meshes.length} meshes, ${stats.triangleCount.toLocaleString()} triangles`);
-
-    return { meshes, stats, modelID, rootNode };
-  } catch (error) {
-    console.error("❌ Failed to load IFC:", error);
-    throw error;
-  }
-}
-
-/**
- * Clean up IFC model and free memory
- */
-export function cleanupIfcModel(ifcAPI: WebIFC.IfcAPI, modelID: number): void {
-  if (ifcAPI.IsModelOpen(modelID)) {
-    ifcAPI.CloseModel(modelID);
-    console.log(`✓ Model ${modelID} closed and memory freed`);
-  }
-}
-
-/**
- * Dispose all meshes, materials, and the root node
- */
-export function disposeIfcScene(scene: Scene): void {
-  // Dispose all IFC materials
-  let materialCount = 0;
-  scene.materials.forEach((material) => {
-    if (material.name.startsWith("ifc-material-")) {
-      material.dispose();
-      materialCount++;
-    }
-  });
-
-  // Find and dispose the ifc-root node (this will dispose all child meshes)
-  const rootNode = scene.getTransformNodeByName("ifc-root");
-  if (rootNode) {
-    rootNode.dispose();
-    console.log(`✓ ifc-root node and all child meshes disposed`);
-  }
-
-  if (materialCount > 0) {
-    console.log(`✓ ${materialCount} IFC materials disposed`);
-  }
-}
-
-/**
- * Get model bounds for camera framing
- */
-/**
- * Get model bounds for camera framing
- */
-export function getModelBounds(meshes: AbstractMesh[]): {
-  min: Vector3;
-  max: Vector3;
-  center: Vector3;
-  size: Vector3;
-  diagonal: number;
-} | null {
-  if (meshes.length === 0) return null;
-
-  let minX = Infinity,
-    minY = Infinity,
-    minZ = Infinity;
-  let maxX = -Infinity,
-    maxY = -Infinity,
-    maxZ = -Infinity;
-  let validBoundsFound = false;
-
-  meshes.forEach((mesh) => {
-    if (!mesh.isVisible || mesh.getTotalVertices() === 0) return;
-
-    // Force update of bounding info
-    mesh.computeWorldMatrix(true);
-    mesh.refreshBoundingInfo(false, false);
-
-    // Get the bounding info
-    const boundingInfo = mesh.getBoundingInfo();
-
-    // Get min and max in world space
-    const min = boundingInfo.boundingBox.minimumWorld;
-    const max = boundingInfo.boundingBox.maximumWorld;
-
-    // Update bounds
-    minX = Math.min(minX, min.x);
-    minY = Math.min(minY, min.y);
-    minZ = Math.min(minZ, min.z);
-    maxX = Math.max(maxX, max.x);
-    maxY = Math.max(maxY, max.y);
-    maxZ = Math.max(maxZ, max.z);
-
-    validBoundsFound = true;
-  });
-
-  if (!validBoundsFound) return null;
-
-  const min = new Vector3(minX, minY, minZ);
-  const max = new Vector3(maxX, maxY, maxZ);
-  const center = new Vector3((minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2);
-  const size = new Vector3(maxX - minX, maxY - minY, maxZ - minZ);
-  const diagonal = Math.sqrt(size.x * size.x + size.y * size.y + size.z * size.z);
-
-  return { min, max, center, size, diagonal };
-}
-
-/**
- * Center the model at origin (useful for camera positioning)
- */
-export function centerModelAtOrigin(meshes: AbstractMesh[], rootNode?: TransformNode): Vector3 {
-  const bounds = getModelBounds(meshes);
-  if (!bounds) return Vector3.Zero();
-
-  const offset = bounds.center.clone();
-
-  if (rootNode) {
-    // Move the entire root node to center the model
-    rootNode.position.subtractInPlace(offset);
-  } else {
-    // Move individual meshes
-    meshes.forEach((mesh) => {
-      mesh.position.subtractInPlace(offset);
-    });
-  }
-
-  console.log(
-    `📍 Model centered at origin, offset: (${offset.x.toFixed(2)}, ${offset.y.toFixed(2)}, ${offset.z.toFixed(2)})`,
-  );
-
-  return offset;
+  return properties;
 }
