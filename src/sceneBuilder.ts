@@ -85,9 +85,8 @@ export function buildScene(
     console.log(`\n🏗️  Building Babylon.js scene from ${model.parts.length} raw parts...`);
   }
 
-  // Create root transform node
+  // Create root transform node (without scaling yet)
   const rootNode = new TransformNode("ifc-root", scene);
-  rootNode.scaling.z = -1; // IFC-to-Babylon coordinate flip
 
   // Create meshes from raw parts
   const meshesWithColor: MeshWithColor[] = model.parts.map((part, index) => {
@@ -186,6 +185,13 @@ export function buildScene(
       });
     }
   });
+
+  // Apply Z-axis flip for coordinate system conversion (IFC to Babylon)
+  // This must be done AFTER all meshes are created and transforms are baked
+  rootNode.scaling.z = -1;
+
+  // Force update of world matrix to apply scaling
+  rootNode.computeWorldMatrix(true);
 
   // Auto-center the model if requested
   if (opts.autoCenter) {
