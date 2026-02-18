@@ -1,5 +1,6 @@
 import { initializeWebIFC, loadIfcModel, closeIfcModel, extractMetadata } from "./ifcLoader";
 import { buildScene, disposeIfcScene, getModelBounds } from "./sceneBuilder";
+import type { IfcAPI } from "web-ifc";
 import {
   Engine,
   Scene,
@@ -13,7 +14,7 @@ import {
 import { ShowInspector } from "@babylonjs/inspector";
 
 // Initialize web-ifc API
-let ifcAPI: any = null;
+let ifcAPI: IfcAPI | null = null;
 
 // Store currently loaded meshes and model ID for cleanup when loading new files
 let currentIfcMeshes: AbstractMesh[] = [];
@@ -178,6 +179,7 @@ const loadIfc = async (scene: Scene, source: string | File) => {
   });
 
   // Step 2: Extract metadata (web-ifc only)
+  /*
   const metadata = extractMetadata(ifcAPI, model.modelID);
   console.log("\n📋 IFC File Metadata:");
   console.log(`  Project: ${metadata.projectName || "N/A"}`);
@@ -185,6 +187,7 @@ const loadIfc = async (scene: Scene, source: string | File) => {
   console.log(`  Software: ${metadata.software || "N/A"}`);
   console.log(`  Author: ${metadata.author || "N/A"}`);
   console.log(`  Organization: ${metadata.organization || "N/A"}`);
+*/
 
   // Step 3: Build Babylon.js scene (Babylon only)
   const { meshes, rootNode, stats } = buildScene(model, scene, {
@@ -193,6 +196,7 @@ const loadIfc = async (scene: Scene, source: string | File) => {
     doubleSided: true,
     generateNormals: false,
     verbose: true,
+    freezeAfterBuild: true,
   });
 
   console.log(`\n✓ IFC loaded successfully`);
@@ -235,6 +239,11 @@ const createScene = async (): Promise<Scene> => {
       currentModelID = modelID;
       currentRootNode = rootNode;
 
+      // Log root node information to actually use it
+      if (rootNode) {
+        console.log(`  Model root node: ${rootNode.name} with ${rootNode.getChildMeshes().length} child meshes`);
+      }
+
       console.log(`✓ Loaded ${currentIfcMeshes.length} IFC meshes (Model ID: ${modelID})`);
       console.log(`  Build time: ${stats.buildTimeMs.toFixed(2)}ms`);
 
@@ -250,6 +259,8 @@ const createScene = async (): Promise<Scene> => {
 
   // Show inspector for debugging (optional)
   ShowInspector(scene);
+
+  console.log(scene);
 
   return scene;
 };
@@ -307,8 +318,13 @@ if (ifcAPI) {
       console.log(`\n📦 Loading dropped file: ${file.name}`);
 
       // Dispose of previously loaded model
-      if (currentIfcMeshes.length > 0 || currentModelID !== null) {
+      if (currentIfcMeshes.length > 0 || currentModelID !== null || currentRootNode !== null) {
         console.log(`  Cleaning up previous model...`);
+
+        // Log root node info before disposal
+        if (currentRootNode) {
+          console.log(`  Disposing root node: ${currentRootNode.name}`);
+        }
 
         // Dispose all meshes, materials, and the ifc-root node
         disposeIfcScene(scene);
@@ -333,6 +349,14 @@ if (ifcAPI) {
       currentModelID = modelID;
       currentRootNode = rootNode;
 
+      // Use rootNode for additional setup if needed
+      if (rootNode) {
+        // Log hierarchy information
+        console.log(`  Model hierarchy:`);
+        console.log(`    Root node: ${rootNode.name}`);
+        console.log(`    Child meshes: ${rootNode.getChildMeshes().length}`);
+      }
+
       // Adjust camera to view the loaded model
       const camera = scene.activeCamera as ArcRotateCamera;
       if (camera) {
@@ -349,6 +373,7 @@ if (ifcAPI) {
 }
 
 // Add a reset camera button or functionality (optional)
+//@ts-ignore
 const resetCamera = () => {
   if (currentIfcMeshes.length > 0) {
     const camera = scene.activeCamera as ArcRotateCamera;
@@ -358,6 +383,3 @@ const resetCamera = () => {
     }
   }
 };
-
-// You can call resetCamera() from a button if needed
-// Example: document.getElementById("reset-camera")?.addEventListener("click", resetCamera);
