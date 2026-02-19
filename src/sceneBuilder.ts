@@ -8,7 +8,6 @@ import {
   Vector3,
   Color3,
   StandardMaterial,
-  VertexBuffer,
 } from "@babylonjs/core";
 import type { RawIfcModel, RawGeometryPart } from "./ifcLoader";
 
@@ -23,6 +22,7 @@ export interface SceneBuildOptions {
   doubleSided?: boolean; // default: true (backFaceCulling=false)
   generateNormals?: boolean; // default: false
   verbose?: boolean; // default: true
+  freezeAfterBuild?: boolean;
 }
 
 /** Result of building a scene */
@@ -65,11 +65,7 @@ interface MeshWithColor {
 /**
  * Build a Babylon.js scene from raw IFC model data
  */
-export function buildScene(
-  model: RawIfcModel,
-  scene: Scene,
-  options: SceneBuildOptions = {},
-): SceneBuildResult {
+export function buildScene(model: RawIfcModel, scene: Scene, options: SceneBuildOptions = {}): SceneBuildResult {
   const startTime = performance.now();
 
   const opts: SceneBuildOptions = {
@@ -171,9 +167,7 @@ export function buildScene(
         });
         skippedCount++;
         if (opts.verbose) {
-          console.log(
-            `  ⚠ Skipped merging ${meshes.length} parts for expressID ${expressID} (different storeys)`,
-          );
+          console.log(`  ⚠ Skipped merging ${meshes.length} parts for expressID ${expressID} (different storeys)`);
         }
       }
     } else {
@@ -226,6 +220,14 @@ export function buildScene(
     console.log(`  Final meshes: ${stats.finalMeshCount}`);
     console.log(`  Materials created: ${stats.materialCount}`);
     console.log(`  Build time: ${stats.buildTimeMs.toFixed(2)}ms`);
+  }
+
+  if (opts.freezeAfterBuild) {
+    scene.freezeActiveMeshes();
+    scene.freezeMaterials();
+    if (opts.verbose) {
+      console.log(`  Scene frozen for optimal performance`);
+    }
   }
 
   return {
