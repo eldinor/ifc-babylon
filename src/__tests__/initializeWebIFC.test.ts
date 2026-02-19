@@ -20,6 +20,9 @@ vi.mock("web-ifc", () => {
   };
 });
 
+// Store the original performance.now
+const originalPerformanceNow = performance.now;
+
 describe("initializeWebIFC", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -55,5 +58,41 @@ describe("initializeWebIFC", () => {
     expect(result.SetWasmPath).toHaveBeenCalledWith(wasmPath);
     expect(result.SetLogLevel).toHaveBeenCalledWith(WebIFC.LogLevel.LOG_LEVEL_WARN);
     expect(result.Init).toHaveBeenCalled();
+  });
+
+  it("should log initialization time on success", async () => {
+    const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await initializeWebIFC();
+
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringMatching(/✓ Web-IFC initialized in \d+\.?\d*ms/));
+
+    consoleSpy.mockRestore();
+  });
+
+  it("should handle empty string WASM path (should not set)", async () => {
+    const result = await initializeWebIFC("");
+
+    // Empty string is falsy, so SetWasmPath should not be called
+    expect(result.SetWasmPath).not.toHaveBeenCalled();
+  });
+
+  it("should call Init before SetLogLevel", async () => {
+    const result = await initializeWebIFC();
+
+    // Check the order of calls
+    const initOrder = (result.Init as any).mock.invocationCallOrder[0];
+    const logLevelOrder = (result.SetLogLevel as any).mock.invocationCallOrder[0];
+
+    expect(initOrder).toBeLessThan(logLevelOrder);
+  });
+
+  it("should call SetWasmPath before Init when path is provided", async () => {
+    const result = await initializeWebIFC("custom/path/");
+
+    const wasmPathOrder = (result.SetWasmPath as any).mock.invocationCallOrder[0];
+    const initOrder = (result.Init as any).mock.invocationCallOrder[0];
+
+    expect(wasmPathOrder).toBeLessThan(initOrder);
   });
 });
