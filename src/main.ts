@@ -1,4 +1,4 @@
-import { initializeWebIFC, loadIfcModel, closeIfcModel } from "./ifcInit";
+import { initializeWebIFC, loadIfcModel, closeIfcModel, getProjectInfo } from "./ifcInit";
 import { buildScene, disposeIfcScene, getModelBounds } from "./sceneBuilder";
 import type { IfcAPI } from "web-ifc";
 import {
@@ -120,6 +120,47 @@ const hideUpperTextAndClearHighlight = () => {
 };
 
 /**
+ * Helper function to show project info in upper text
+ */
+const showProjectInfo = (modelID: number) => {
+  if (!ifcAPI) return;
+
+  const projectInfo = getProjectInfo(ifcAPI, modelID);
+  const upperText = document.getElementById("upper-text");
+
+  if (upperText) {
+    const parts: string[] = [];
+
+    if (projectInfo.projectName) {
+      parts.push(`<strong>Project: ${projectInfo.projectName}</strong>`);
+    }
+    if (projectInfo.author) {
+      parts.push(`Author: ${projectInfo.author}`);
+    }
+    /*
+    if (projectInfo.organization) {
+      parts.push(`Org: ${projectInfo.organization}`);
+    }
+      */
+    if (projectInfo.application) {
+      parts.push(`App: ${projectInfo.application}`);
+    }
+
+    if (parts.length > 0) {
+      upperText.innerHTML = parts.join(" | ");
+      upperText.style.display = "block";
+    }
+  }
+
+  console.log("\n📋 IFC Project Info:");
+  console.log(`  Project: ${projectInfo.projectName || "N/A"}`);
+  console.log(`  Description: ${projectInfo.projectDescription || "N/A"}`);
+  console.log(`  Application: ${projectInfo.application || "N/A"}`);
+  console.log(`  Author: ${projectInfo.author || "N/A"}`);
+  console.log(`  Organization: ${projectInfo.organization || "N/A"}`);
+};
+
+/**
  * Helper function to adjust camera to view meshes
  */
 const adjustCameraToMeshes = (meshes: AbstractMesh[], camera: ArcRotateCamera) => {
@@ -177,18 +218,7 @@ const loadIfc = async (scene: Scene, source: string | File) => {
     verbose: true,
   });
 
-  // Step 2: Extract metadata (web-ifc only)
-  /*
-  const metadata = extractMetadata(ifcAPI, model.modelID);
-  console.log("\n📋 IFC File Metadata:");
-  console.log(`  Project: ${metadata.projectName || "N/A"}`);
-  console.log(`  Description: ${metadata.projectDescription || "N/A"}`);
-  console.log(`  Software: ${metadata.software || "N/A"}`);
-  console.log(`  Author: ${metadata.author || "N/A"}`);
-  console.log(`  Organization: ${metadata.organization || "N/A"}`);
-*/
-
-  // Step 3: Build Babylon.js scene (Babylon only)
+  // Step 2: Build Babylon.js scene (Babylon only)
   const { meshes, rootNode, stats } = buildScene(model, scene, {
     autoCenter: true,
     mergeMeshes: true,
@@ -246,6 +276,9 @@ const createScene = async (): Promise<Scene> => {
       console.log(`✓ Loaded ${currentIfcMeshes.length} IFC meshes (Model ID: ${modelID})`);
       console.log(`  Build time: ${stats.buildTimeMs.toFixed(2)}ms`);
 
+      // Show project info in upper text
+      showProjectInfo(modelID);
+
       // Adjust camera to view the loaded model
       if (currentIfcMeshes.length > 0) {
         adjustCameraToMeshes(currentIfcMeshes, camera);
@@ -276,7 +309,7 @@ window.addEventListener("resize", () => {
 
 // Add drag-and-drop functionality for IFC files
 if (ifcAPI) {
-  // Prevent default drag behavior
+  // Prevent default drag behaviorshowProjectInfo
   canvas.addEventListener("dragover", (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -350,6 +383,9 @@ if (ifcAPI) {
         // Log hierarchy information
         console.log(`Child meshes: ${rootNode.getChildMeshes().length}`);
       }
+
+      // Show project info in upper text
+      showProjectInfo(modelID);
 
       // Adjust camera to view the loaded model
       const camera = scene.activeCamera as ArcRotateCamera;
