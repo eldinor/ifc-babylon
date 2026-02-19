@@ -1,4 +1,4 @@
-rimport { defineConfig } from "vitest/config";
+import { defineConfig } from "vitest/config";
 import { viteStaticCopy } from "vite-plugin-static-copy";
 
 export default defineConfig({
