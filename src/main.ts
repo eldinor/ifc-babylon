@@ -1,4 +1,4 @@
-import { initializeWebIFC, loadIfcModel, closeIfcModel, extractMetadata } from "./ifcLoader";
+import { initializeWebIFC, loadIfcModel, closeIfcModel } from "./ifcInit";
 import { buildScene, disposeIfcScene, getModelBounds } from "./sceneBuilder";
 import type { IfcAPI } from "web-ifc";
 import {

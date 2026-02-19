@@ -9,7 +9,7 @@ import {
   Color3,
   StandardMaterial,
 } from "@babylonjs/core";
-import type { RawIfcModel, RawGeometryPart } from "./ifcLoader";
+import type { RawIfcModel, RawGeometryPart } from "./ifcInit";
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -22,7 +22,7 @@ export interface SceneBuildOptions {
   doubleSided?: boolean; // default: true (backFaceCulling=false)
   generateNormals?: boolean; // default: false
   verbose?: boolean; // default: true
-  freezeAfterBuild?: boolean;
+  freezeAfterBuild?: boolean; // default: true
 }
 
 /** Result of building a scene */
@@ -74,6 +74,7 @@ export function buildScene(model: RawIfcModel, scene: Scene, options: SceneBuild
     doubleSided: true,
     generateNormals: false,
     verbose: true,
+    freezeAfterBuild: true,
     ...options,
   };
 
