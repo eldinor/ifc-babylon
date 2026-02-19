@@ -224,10 +224,21 @@ export function buildScene(model: RawIfcModel, scene: Scene, options: SceneBuild
   }
 
   if (opts.freezeAfterBuild) {
-    scene.freezeActiveMeshes();
-    scene.freezeMaterials();
+    // Freeze only IFC meshes that are children of ifc-root
+    const rootNode = scene.getTransformNodeByName("ifc-root");
+    if (rootNode) {
+      rootNode.getChildMeshes().forEach((mesh) => {
+        mesh.freezeWorldMatrix();
+      });
+    }
+    // Freeze IFC materials only
+    scene.materials.forEach((material) => {
+      if (material.name.startsWith("ifc-material-")) {
+        material.freeze();
+      }
+    });
     if (opts.verbose) {
-      console.log(`  Scene frozen for optimal performance`);
+      console.log(`  IFC meshes and materials frozen for optimal performance`);
     }
   }
 

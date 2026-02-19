@@ -11,7 +11,6 @@ import {
   Color3,
   TransformNode,
 } from "@babylonjs/core";
-import { ShowInspector } from "@babylonjs/inspector";
 
 // Initialize web-ifc API
 let ifcAPI: IfcAPI | null = null;
@@ -257,9 +256,6 @@ const createScene = async (): Promise<Scene> => {
     }
   }
 
-  // Show inspector for debugging (optional)
-  ShowInspector(scene);
-
   console.log(scene);
 
   return scene;
@@ -352,9 +348,7 @@ if (ifcAPI) {
       // Use rootNode for additional setup if needed
       if (rootNode) {
         // Log hierarchy information
-        console.log(`  Model hierarchy:`);
-        console.log(`    Root node: ${rootNode.name}`);
-        console.log(`    Child meshes: ${rootNode.getChildMeshes().length}`);
+        console.log(`Child meshes: ${rootNode.getChildMeshes().length}`);
       }
 
       // Adjust camera to view the loaded model
