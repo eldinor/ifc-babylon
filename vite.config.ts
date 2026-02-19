@@ -1,7 +1,16 @@
-import { defineConfig } from "vite";
+rimport { defineConfig } from "vitest/config";
 import { viteStaticCopy } from "vite-plugin-static-copy";
 
 export default defineConfig({
+  test: {
+    environment: "jsdom",
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "html"],
+      include: ["src/**/*.ts"],
+      exclude: ["src/__tests__/**"],
+    },
+  },
   plugins: [
     viteStaticCopy({
       targets: [

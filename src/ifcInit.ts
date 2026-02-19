@@ -29,52 +29,18 @@ export interface RawIfcModel {
 }
 
 /** Configuration for IFC loader */
-export interface IfcLoaderOptions {
+export interface IfcInitOptions {
   coordinateToOrigin?: boolean; // web-ifc COORDINATE_TO_ORIGIN (default: true)
   verbose?: boolean; // console logging (default: true)
 }
 
-/** Metadata extracted from IFC file */
-export interface MetadataResult {
+/** projectInfo extracted from IFC file */
+export interface ProjectInfoResult {
   projectName: string | null;
   projectDescription: string | null;
-  software: string | null;
+  application: string | null;
   author: string | null;
   organization: string | null;
-}
-
-/** Building information */
-export interface BuildingInfo {
-  id: number;
-  name: string;
-  longName: string;
-  description: string;
-  elevation?: number;
-}
-
-/** Unit information */
-export interface UnitInfo {
-  type: number;
-  unitType?: string;
-  name?: string;
-  prefix?: string;
-  value?: number;
-}
-
-/** Property information */
-export interface PropertyInfo {
-  name?: string;
-  description?: string;
-  value?: any;
-  type?: number;
-}
-
-/** Property set information */
-export interface PropertySetInfo {
-  id: number;
-  name?: string;
-  description?: string;
-  properties: PropertyInfo[];
 }
 
 // ============================================================================
@@ -119,9 +85,9 @@ export async function initializeWebIFC(
 export async function loadIfcModel(
   ifcAPI: WebIFC.IfcAPI,
   source: string | File,
-  options: IfcLoaderOptions = {},
+  options: IfcInitOptions = {},
 ): Promise<RawIfcModel> {
-  const opts: IfcLoaderOptions = {
+  const opts: IfcInitOptions = {
     coordinateToOrigin: true,
     verbose: true,
     ...options,
@@ -163,17 +129,17 @@ export function closeIfcModel(ifcAPI: WebIFC.IfcAPI, modelID: number): void {
 }
 
 // ============================================================================
-// PUBLIC API - Metadata Extraction
+// PUBLIC API - projectInfo Extraction
 // ============================================================================
 
 /**
- * Extract high-level IFC metadata (project, software, author, organization)
+ * Extract high-level IFC projectInfo (project, application, author, organization)
  */
-export function extractMetadata(ifcAPI: WebIFC.IfcAPI, modelID: number): MetadataResult {
-  const metadata: MetadataResult = {
+export function getProjectInfo(ifcAPI: WebIFC.IfcAPI, modelID: number): ProjectInfoResult {
+  const projectInfo: ProjectInfoResult = {
     projectName: null,
     projectDescription: null,
-    software: null,
+    application: null,
     author: null,
     organization: null,
   };
@@ -186,19 +152,19 @@ export function extractMetadata(ifcAPI: WebIFC.IfcAPI, modelID: number): Metadat
       const project = ifcAPI.GetLine(modelID, projectID);
 
       if (project) {
-        metadata.projectName = project.Name?.value || project.LongName?.value || null;
-        metadata.projectDescription = project.Description?.value || null;
+        projectInfo.projectName = project.Name?.value || project.LongName?.value || null;
+        projectInfo.projectDescription = project.Description?.value || null;
       }
     }
 
-    // Get IFCAPPLICATION for software info
+    // Get IFCAPPLICATION for application info
     const applications = ifcAPI.GetLineIDsWithType(modelID, WebIFC.IFCAPPLICATION);
     if (applications.size() > 0) {
       const appID = applications.get(0);
       const app = ifcAPI.GetLine(modelID, appID);
 
       if (app) {
-        metadata.software = app.ApplicationFullName?.value || app.ApplicationIdentifier?.value || null;
+        projectInfo.application = app.ApplicationFullName?.value || app.ApplicationIdentifier?.value || null;
       }
     }
 
@@ -212,7 +178,7 @@ export function extractMetadata(ifcAPI: WebIFC.IfcAPI, modelID: number): Metadat
         const givenName = person.GivenName?.value || "";
         const familyName = person.FamilyName?.value || "";
         const id = person.Identification?.value || "";
-        metadata.author = [givenName, familyName, id].filter(Boolean).join(" ") || null;
+        projectInfo.author = [givenName, familyName, id].filter(Boolean).join(" ") || null;
       }
     }
 
@@ -223,113 +189,14 @@ export function extractMetadata(ifcAPI: WebIFC.IfcAPI, modelID: number): Metadat
       const org = ifcAPI.GetLine(modelID, orgID);
 
       if (org) {
-        metadata.organization = org.Name?.value || null;
+        projectInfo.organization = org.Name?.value || null;
       }
     }
   } catch (error) {
-    console.warn("Error extracting IFC metadata:", error);
+    console.warn("Error extracting IFC projectInfo:", error);
   }
 
-  return metadata;
-}
-
-/**
- * Get building information from IFC file
- */
-export async function getBuildingInfo(
-  ifcAPI: WebIFC.IfcAPI,
-  modelID: number,
-): Promise<BuildingInfo[]> {
-  const buildings = ifcAPI.GetLineIDsWithType(modelID, WebIFC.IFCBUILDING);
-  const buildingList: BuildingInfo[] = [];
-
-  for (let i = 0; i < buildings.size(); i++) {
-    const buildingID = buildings.get(i);
-    const building = await ifcAPI.GetLine(modelID, buildingID);
-
-    buildingList.push({
-      id: buildingID,
-      name: building.Name?.value || "",
-      longName: building.LongName?.value || "",
-      description: building.Description?.value || "",
-      elevation: building.ElevationOfRefHeight?.value,
-    });
-  }
-
-  return buildingList;
-}
-
-/**
- * Get project units from IFC file
- */
-export async function getProjectUnits(
-  ifcAPI: WebIFC.IfcAPI,
-  modelID: number,
-): Promise<UnitInfo[] | null> {
-  const projects = ifcAPI.GetLineIDsWithType(modelID, WebIFC.IFCPROJECT);
-  if (projects.size() === 0) return null;
-
-  const project = await ifcAPI.GetLine(modelID, projects.get(0));
-  if (!project.UnitsInContext) return null;
-
-  const unitAssignment = await ifcAPI.GetLine(modelID, project.UnitsInContext.value);
-  const units: UnitInfo[] = [];
-
-  // Parse units
-  if (unitAssignment.Units) {
-    for (const unitRef of unitAssignment.Units) {
-      if (unitRef.value) {
-        const unit = await ifcAPI.GetLine(modelID, unitRef.value);
-        units.push({
-          type: unit.type,
-          unitType: unit.UnitType?.value,
-          name: unit.Name?.value,
-          prefix: unit.Prefix?.value,
-          value: unit.Value?.value,
-        });
-      }
-    }
-  }
-
-  return units;
-}
-
-/**
- * Get all property sets from IFC model
- */
-export async function getAllPropertySets(
-  ifcAPI: WebIFC.IfcAPI,
-  modelID: number,
-): Promise<PropertySetInfo[]> {
-  const propertySets: PropertySetInfo[] = [];
-  const propertySetIds = new Set<number>();
-
-  try {
-    // Get all IFCPROPERTYSET entities directly
-    const propSetLines = ifcAPI.GetLineIDsWithType(modelID, WebIFC.IFCPROPERTYSET);
-
-    for (let i = 0; i < propSetLines.size(); i++) {
-      const propSetID = propSetLines.get(i);
-
-      // Skip if we've already processed this property set
-      if (propertySetIds.has(propSetID)) continue;
-      propertySetIds.add(propSetID);
-
-      const propSet = await ifcAPI.GetLine(modelID, propSetID);
-      const properties = await getPropertiesFromSet(ifcAPI, modelID, propSet);
-
-      propertySets.push({
-        id: propSetID,
-        name: propSet.Name?.value,
-        description: propSet.Description?.value,
-        properties,
-      });
-    }
-  } catch (error) {
-    console.warn("Error extracting property sets:", error);
-  }
-
-  return propertySets;
+  return projectInfo;
 }
 
 // ============================================================================
@@ -339,11 +206,7 @@ export async function getAllPropertySets(
 /**
  * Open an IFC model from URL or File
  */
-async function openModel(
-  ifcAPI: WebIFC.IfcAPI,
-  source: string | File,
-  options: IfcLoaderOptions,
-): Promise<number> {
+async function openModel(ifcAPI: WebIFC.IfcAPI, source: string | File, options: IfcInitOptions): Promise<number> {
   let data: ArrayBuffer;
 
   if (typeof source === "string") {
@@ -389,7 +252,7 @@ async function openModel(
 function streamGeometry(
   ifcAPI: WebIFC.IfcAPI,
   modelID: number,
-  options: IfcLoaderOptions,
+  options: IfcInitOptions,
 ): { parts: RawGeometryPart[]; rawStats: { partCount: number; vertexCount: number; triangleCount: number } } {
   const parts: RawGeometryPart[] = [];
   let totalVertices = 0;
@@ -542,35 +405,4 @@ function buildStoreyMap(ifcAPI: WebIFC.IfcAPI, modelID: number): Map<number, num
   }
 
   return elementToStorey;
-}
-
-// ============================================================================
-// PRIVATE HELPERS - Metadata
-// ============================================================================
-
-/**
- * Get properties from a property set
- */
-async function getPropertiesFromSet(
-  ifcAPI: WebIFC.IfcAPI,
-  modelID: number,
-  propertySet: any,
-): Promise<PropertyInfo[]> {
-  const properties: PropertyInfo[] = [];
-
-  if (propertySet.HasProperties) {
-    for (const propRef of propertySet.HasProperties) {
-      if (propRef.value) {
-        const prop = await ifcAPI.GetLine(modelID, propRef.value);
-        properties.push({
-          name: prop.Name?.value,
-          description: prop.Description?.value,
-          value: prop.NominalValue?.value,
-          type: prop.NominalValue?.type,
-        });
-      }
-    }
-  }
-
-  return properties;
 }
