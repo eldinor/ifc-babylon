@@ -16,6 +16,12 @@ npm run build
 
 # Preview production build
 npm run preview
+
+# Run tests
+npm test
+
+# Run tests with coverage
+npm run test:coverage
 ```
 
 Open http://localhost:5173 and the sample IFC file `public/test.ifc` will load automatically.
