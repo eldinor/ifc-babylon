@@ -112,6 +112,56 @@ closeIfcModel(ifcAPI, modelID);
 
 See [API.md](./API.md) for complete API documentation with all types, parameters, and examples.
 
+## Testing
+
+The project uses [Vitest](https://vitest.dev/) for unit testing with the following setup:
+
+- **Test Runner:** Vitest v4 with `jsdom` environment
+- **Coverage:** `@vitest/coverage-v8` for code coverage reports
+- **Location:** Test files are in `src/__tests__/`
+
+### Test Files
+
+| File                       | Description                           |
+| -------------------------- | ------------------------------------- |
+| `initializeWebIFC.test.ts` | Tests for web-ifc initialization      |
+| `loadIfcModel.test.ts`     | Tests for IFC model loading           |
+| `closeIfcModel.test.ts`    | Tests for model cleanup               |
+| `getProjectInfo.test.ts`   | Tests for project metadata extraction |
+| `sceneBuilder.test.ts`     | Tests for Babylon.js scene building   |
+
+### Running Tests
+
+```bash
+# Run tests in watch mode
+npm test
+
+# Run tests once
+npm test -- --run
+
+# Run tests with coverage report
+npm run test:coverage
+```
+
+### Writing Tests
+
+Tests follow the standard Vitest pattern with mocked dependencies:
+
+```typescript
+import { describe, it, expect, beforeEach, vi } from "vitest";
+
+describe("myFunction", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("should do something", async () => {
+    const result = await myFunction();
+    expect(result).toBe(expected);
+  });
+});
+```
+
 ## Project Structure
 
 ```
