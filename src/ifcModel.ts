@@ -86,7 +86,7 @@ export function buildIfcModel(model: RawIfcModel, scene: Scene, options: SceneBu
   const rootNode = new TransformNode("ifc-root", scene);
 
   // Create meshes from raw parts
-  const meshesWithColor: MeshWithColor[] = model.parts.map((part, _index) => {
+  const meshesWithColor: MeshWithColor[] = model.parts.map((part) => {
     return createMeshFromPart(part, model.modelID, scene, rootNode, opts);
   });
 

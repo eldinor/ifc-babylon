@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import * as WebIFC from "web-ifc";
 import { getProjectInfo } from "../ifcInit";
-import type { ProjectInfoResult } from "../ifcInit";
 
 // Mock WebIFC with a proper class constructor
 vi.mock("web-ifc", () => {
