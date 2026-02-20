@@ -10,12 +10,12 @@ This document provides detailed API reference for the IFC Viewer library. The co
   - [closeIfcModel](#closeifcmodel)
   - [getProjectInfo](#getprojectinfo)
   - [Types](#types-ifcinit)
-- [Rendering Layer (sceneBuilder.ts)](#rendering-layer-scenebuilderts)
-  - [buildScene](#buildscene)
+- [Rendering Layer (ifcModel.ts)](#rendering-layer-ifcmodelts)
+  - [buildIfcModel](#buildifcmodel)
   - [disposeIfcScene](#disposeifcscene)
   - [getModelBounds](#getmodelbounds)
   - [centerModelAtOrigin](#centermodelatorigin)
-  - [Types](#types-scenebuilder)
+  - [Types](#types-ifcmodel)
 
 ---
 
@@ -275,16 +275,16 @@ interface ProjectInfoResult {
 
 ---
 
-## Rendering Layer (sceneBuilder.ts)
+## Rendering Layer (ifcModel.ts)
 
 All Babylon.js scene construction. **Zero web-ifc dependencies.**
 
-### buildScene
+### buildIfcModel
 
 Build a Babylon.js scene from raw IFC model data.
 
 ```typescript
-function buildScene(model: RawIfcModel, scene: Scene, options?: SceneBuildOptions): SceneBuildResult;
+function buildIfcModel(model: RawIfcModel, scene: Scene, options?: SceneBuildOptions): SceneBuildResult;
 ```
 
 #### Parameters
@@ -313,9 +313,9 @@ function buildScene(model: RawIfcModel, scene: Scene, options?: SceneBuildOption
 #### Example
 
 ```typescript
-import { buildScene } from "./sceneBuilder";
+import { buildIfcModel } from "./ifcModel";
 
-const { meshes, rootNode, stats } = buildScene(model, scene, {
+const { meshes, rootNode, stats } = buildIfcModel(model, scene, {
   mergeMeshes: true,
   autoCenter: true,
   doubleSided: true,
@@ -366,7 +366,7 @@ function disposeIfcScene(scene: Scene): void;
 #### Example
 
 ```typescript
-import { disposeIfcScene } from "./sceneBuilder";
+import { disposeIfcScene } from "./ifcModel";
 
 // Clean up before loading new model
 disposeIfcScene(scene);
@@ -402,7 +402,7 @@ function getModelBounds(meshes: AbstractMesh[]): BoundsInfo | null;
 #### Example
 
 ```typescript
-import { getModelBounds } from "./sceneBuilder";
+import { getModelBounds } from "./ifcModel";
 
 const bounds = getModelBounds(meshes);
 
@@ -441,7 +441,7 @@ function centerModelAtOrigin(meshes: AbstractMesh[], rootNode?: TransformNode): 
 #### Example
 
 ```typescript
-import { centerModelAtOrigin } from "./sceneBuilder";
+import { centerModelAtOrigin } from "./ifcModel";
 
 const offset = centerModelAtOrigin(meshes, rootNode);
 console.log(`Model centered with offset: ${offset}`);
@@ -449,7 +449,7 @@ console.log(`Model centered with offset: ${offset}`);
 
 ---
 
-### Types (sceneBuilder)
+### Types (ifcModel)
 
 #### SceneBuildOptions
 
@@ -513,7 +513,7 @@ interface BoundsInfo {
 
 ```typescript
 import { initializeWebIFC, loadIfcModel, closeIfcModel, getProjectInfo } from "./ifcInit";
-import { buildScene, disposeIfcScene, getModelBounds } from "./sceneBuilder";
+import { buildIfcModel, disposeIfcScene, getModelBounds } from "./ifcModel";
 import { Engine, Scene, ArcRotateCamera, HemisphericLight, Vector3 } from "@babylonjs/core";
 
 // Step 1: Initialize web-ifc
@@ -540,7 +540,7 @@ const projectInfo = getProjectInfo(ifcAPI, model.modelID);
 console.log(`Project: ${projectInfo.projectName}`);
 
 // Step 6: Build Babylon.js scene
-const { meshes, rootNode, stats } = buildScene(model, scene, {
+const { meshes, rootNode, stats } = buildIfcModel(model, scene, {
   autoCenter: true,
   mergeMeshes: true,
   doubleSided: true,
@@ -568,7 +568,7 @@ function cleanup() {
 
 ## Mesh Metadata
 
-All meshes created by `buildScene` have metadata attached:
+All meshes created by `buildIfcModel` have metadata attached:
 
 ```typescript
 mesh.metadata = {
