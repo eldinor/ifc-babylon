@@ -128,7 +128,7 @@ The project uses [Vitest](https://vitest.dev/) for unit testing with the followi
 | `loadIfcModel.test.ts`     | Tests for IFC model loading           |
 | `closeIfcModel.test.ts`    | Tests for model cleanup               |
 | `getProjectInfo.test.ts`   | Tests for project metadata extraction |
-| `sceneBuilder.test.ts`     | Tests for Babylon.js scene building   |
+| `buildIfcModel.test.ts`    | Tests for Babylon.js scene building   |
 
 ### Running Tests
 

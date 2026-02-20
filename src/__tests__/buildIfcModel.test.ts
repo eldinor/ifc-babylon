@@ -44,7 +44,7 @@ function createMockModel(parts: RawGeometryPart[] = [createMockPart()]): RawIfcM
 // TESTS
 // ============================================================================
 
-describe("sceneBuilder", () => {
+describe("buildIfcModel", () => {
   let engine: NullEngine;
   let scene: Scene;
 
