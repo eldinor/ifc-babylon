@@ -4,6 +4,12 @@ This document provides detailed API reference for the IFC Viewer library. The co
 
 ## Table of Contents
 
+- [Babylon.js Loader Plugin (ifcLoader.ts)](#babylonjs-loader-plugin-ifcloaderts)
+  - [loadIfc](#loadifc)
+  - [configureIfcLoader](#configureifcloader)
+  - [disposeIfc](#disposeifc)
+  - [IfcLoaderPlugin](#ifcloaderplugin)
+  - [Types](#types-ifcloader)
 - [IFC Data Layer (ifcInit.ts)](#ifc-data-layer-ifcinitts)
   - [initializeWebIFC](#initializewebifc)
   - [loadIfcModel](#loadifcmodel)
@@ -16,6 +22,174 @@ This document provides detailed API reference for the IFC Viewer library. The co
   - [getModelBounds](#getmodelbounds)
   - [centerModelAtOrigin](#centermodelatorigin)
   - [Types](#types-ifcmodel)
+
+---
+
+## Babylon.js Loader Plugin (ifcLoader.ts)
+
+High-level Babylon.js SceneLoader plugin for IFC files. Automatically registers with `SceneLoader` for `.ifc` file extension.
+
+### loadIfc
+
+Load an IFC file using the convenience function.
+
+```typescript
+async function loadIfc(
+  source: string | File,
+  scene: Scene,
+  options?: Partial<IfcLoaderOptions>,
+): Promise<IfcLoaderResult>;
+```
+
+#### Parameters
+
+| Parameter | Type                        | Required | Description                          |
+| --------- | --------------------------- | -------- | ------------------------------------ |
+| `source`  | `string \| File`            | Yes      | URL path to IFC file or File object. |
+| `scene`   | `Scene`                     | Yes      | Babylon.js scene instance.           |
+| `options` | `Partial<IfcLoaderOptions>` | No       | Loading options.                     |
+
+#### Returns
+
+`Promise<IfcLoaderResult>` - Object containing meshes, root node, model ID, project info, bounds, and stats.
+
+#### Example
+
+```typescript
+import { loadIfc, disposeIfc } from "./ifcLoader";
+
+// Load IFC file
+const result = await loadIfc("/model.ifc", scene, {
+  mergeMeshes: true,
+  autoCenter: true,
+});
+
+console.log(`Loaded ${result.meshes.length} meshes`);
+console.log(`Project: ${result.projectInfo.projectName}`);
+
+// Position camera
+if (result.bounds) {
+  camera.target = result.bounds.center;
+  camera.radius = result.bounds.diagonal * 1.5;
+}
+
+// Cleanup when done
+disposeIfc(scene, result.modelID);
+```
+
+---
+
+### configureIfcLoader
+
+Configure global loader options before loading any IFC files.
+
+```typescript
+function configureIfcLoader(options: IfcPluginOptions): void;
+```
+
+#### Parameters
+
+| Property             | Type                        | Description                       |
+| -------------------- | --------------------------- | --------------------------------- |
+| `wasmPath`           | `string`                    | Custom path to web-ifc.wasm file. |
+| `logLevel`           | `WebIFC.LogLevel`           | Logging level for web-ifc.        |
+| `defaultLoadOptions` | `Partial<IfcLoaderOptions>` | Default options for all loads.    |
+
+#### Example
+
+```typescript
+import { configureIfcLoader } from "./ifcLoader";
+import * as WebIFC from "web-ifc";
+
+// Configure before loading
+configureIfcLoader({
+  wasmPath: "./",
+  logLevel: WebIFC.LogLevel.LOG_LEVEL_WARNING,
+  defaultLoadOptions: {
+    verbose: false,
+    mergeMeshes: true,
+  },
+});
+```
+
+---
+
+### disposeIfc
+
+Dispose an IFC model and free memory.
+
+```typescript
+function disposeIfc(scene: Scene, modelID: number): void;
+```
+
+#### Example
+
+```typescript
+import { disposeIfc } from "./ifcLoader";
+
+// Clean up when loading a new model
+disposeIfc(scene, previousModelID);
+```
+
+---
+
+### IfcLoaderPlugin
+
+The Babylon.js SceneLoader plugin class. Use the static methods for direct loading.
+
+#### Static Methods
+
+| Method                               | Description                         |
+| ------------------------------------ | ----------------------------------- |
+| `loadAsync(source, scene, options?)` | Load IFC file directly.             |
+| `disposeModel(scene, modelID)`       | Dispose model and free memory.      |
+| `getLoaderResult(rootNode)`          | Get result from root node metadata. |
+
+#### Using with SceneLoader
+
+```typescript
+import { SceneLoader } from "@babylonjs/core";
+import "./ifcLoader"; // Import to register plugin
+
+// Method 1: ImportMeshAsync
+const result = await SceneLoader.ImportMeshAsync("", "/", "model.ifc", scene);
+const meshes = result.meshes;
+
+// Method 2: LoadAssetContainerAsync
+const container = await SceneLoader.LoadAssetContainerAsync("/", "model.ifc", scene);
+container.addAllToScene();
+```
+
+---
+
+### Types (ifcLoader)
+
+#### IfcLoaderResult
+
+Result returned by the IFC loader.
+
+```typescript
+interface IfcLoaderResult {
+  meshes: AbstractMesh[]; // Created meshes
+  rootNode: TransformNode; // Root transform node
+  modelID: number; // IFC model ID
+  projectInfo: ProjectInfoResult; // Project metadata
+  bounds: BoundsInfo | null; // Bounding box
+  rawModel: RawIfcModel; // Raw IFC model data
+  stats: BuildStats; // Build statistics
+}
+```
+
+#### IfcLoaderOptions
+
+Options for the IFC loader (combines IFC and scene options).
+
+```typescript
+interface IfcLoaderOptions extends IfcInitOptions, SceneBuildOptions {
+  wasmPath?: string; // Custom WASM path
+  logLevel?: WebIFC.LogLevel; // Log level
+}
+```
 
 ---
 
