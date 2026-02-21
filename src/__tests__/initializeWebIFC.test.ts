@@ -20,9 +20,6 @@ vi.mock("web-ifc", () => {
   };
 });
 
-// Store the original performance.now
-const originalPerformanceNow = performance.now;
-
 describe("initializeWebIFC", () => {
   beforeEach(() => {
     vi.clearAllMocks();

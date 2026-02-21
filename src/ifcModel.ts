@@ -65,7 +65,7 @@ interface MeshWithColor {
 /**
  * Build a Babylon.js scene from raw IFC model data
  */
-export function buildScene(model: RawIfcModel, scene: Scene, options: SceneBuildOptions = {}): SceneBuildResult {
+export function buildIfcModel(model: RawIfcModel, scene: Scene, options: SceneBuildOptions = {}): SceneBuildResult {
   const startTime = performance.now();
 
   const opts: SceneBuildOptions = {
@@ -86,7 +86,7 @@ export function buildScene(model: RawIfcModel, scene: Scene, options: SceneBuild
   const rootNode = new TransformNode("ifc-root", scene);
 
   // Create meshes from raw parts
-  const meshesWithColor: MeshWithColor[] = model.parts.map((part, index) => {
+  const meshesWithColor: MeshWithColor[] = model.parts.map((part) => {
     return createMeshFromPart(part, model.modelID, scene, rootNode, opts);
   });
 

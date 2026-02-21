@@ -1,5 +1,5 @@
 import { initializeWebIFC, loadIfcModel, closeIfcModel, getProjectInfo } from "./ifcInit";
-import { buildScene, disposeIfcScene, getModelBounds } from "./sceneBuilder";
+import { buildIfcModel, disposeIfcScene, getModelBounds } from "./ifcModel";
 import type { IfcAPI } from "web-ifc";
 import {
   Engine,
@@ -219,7 +219,7 @@ const loadIfc = async (scene: Scene, source: string | File) => {
   });
 
   // Step 2: Build Babylon.js scene (Babylon only)
-  const { meshes, rootNode, stats } = buildScene(model, scene, {
+  const { meshes, rootNode, stats } = buildIfcModel(model, scene, {
     autoCenter: true,
     mergeMeshes: true,
     doubleSided: true,
@@ -413,3 +413,34 @@ const resetCamera = () => {
     }
   }
 };
+
+// Track inspector state for toggle functionality
+let inspectorLoaded = false;
+
+// Add Ctrl+I keyboard shortcut to toggle Babylon Inspector
+window.addEventListener("keydown", async (e) => {
+  // Check for Ctrl+I (or Cmd+I on Mac)
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "i") {
+    e.preventDefault();
+
+    // Dynamically import the inspector if not already loaded
+    if (!inspectorLoaded) {
+      try {
+        await import("@babylonjs/inspector");
+        inspectorLoaded = true;
+      } catch (error) {
+        console.error("Failed to load Babylon Inspector:", error);
+        return;
+      }
+    }
+
+    // Toggle inspector visibility using scene.debugLayer
+    if (scene.debugLayer.isVisible()) {
+      scene.debugLayer.hide();
+      console.log("Inspector hidden");
+    } else {
+      await scene.debugLayer.show({ embedMode: false });
+      console.log("Inspector shown");
+    }
+  }
+});

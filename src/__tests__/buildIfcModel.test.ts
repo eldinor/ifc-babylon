@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { NullEngine, Scene, Vector3, Color3 } from "@babylonjs/core";
-import { buildScene, disposeIfcScene, getModelBounds, centerModelAtOrigin } from "../sceneBuilder";
+import { buildIfcModel, disposeIfcScene, getModelBounds, centerModelAtOrigin } from "../ifcModel";
 import type { RawIfcModel, RawGeometryPart } from "../ifcInit";
 
 // ============================================================================
@@ -44,7 +44,7 @@ function createMockModel(parts: RawGeometryPart[] = [createMockPart()]): RawIfcM
 // TESTS
 // ============================================================================
 
-describe("sceneBuilder", () => {
+describe("buildIfcModel", () => {
   let engine: NullEngine;
   let scene: Scene;
 
@@ -61,14 +61,14 @@ describe("sceneBuilder", () => {
   });
 
   // ==========================================================================
-  // buildScene Tests
+  // buildIfcModel Tests
   // ==========================================================================
 
-  describe("buildScene", () => {
+  describe("buildIfcModel", () => {
     it("should build a scene from raw IFC model data", () => {
       const model = createMockModel();
 
-      const result = buildScene(model, scene, { verbose: false });
+      const result = buildIfcModel(model, scene, { verbose: false });
 
       expect(result).toBeDefined();
       expect(result.meshes).toBeDefined();
@@ -79,7 +79,7 @@ describe("sceneBuilder", () => {
     it("should create meshes from raw parts", () => {
       const model = createMockModel([createMockPart(), createMockPart({ expressID: 101 })]);
 
-      const result = buildScene(model, scene, { verbose: false });
+      const result = buildIfcModel(model, scene, { verbose: false });
 
       expect(result.meshes.length).toBeGreaterThan(0);
     });
@@ -87,7 +87,7 @@ describe("sceneBuilder", () => {
     it("should create a root transform node named 'ifc-root'", () => {
       const model = createMockModel();
 
-      const result = buildScene(model, scene, { verbose: false });
+      const result = buildIfcModel(model, scene, { verbose: false });
 
       expect(result.rootNode.name).toBe("ifc-root");
     });
@@ -95,7 +95,7 @@ describe("sceneBuilder", () => {
     it("should apply Z-axis flip for coordinate system conversion", () => {
       const model = createMockModel();
 
-      const result = buildScene(model, scene, { verbose: false });
+      const result = buildIfcModel(model, scene, { verbose: false });
 
       // Z-axis flip is applied via scaling
       expect(result.rootNode.scaling.z).toBe(-1);
@@ -108,7 +108,7 @@ describe("sceneBuilder", () => {
       ];
       const model = createMockModel(parts);
 
-      const result = buildScene(model, scene, { verbose: false, mergeMeshes: true });
+      const result = buildIfcModel(model, scene, { verbose: false, mergeMeshes: true });
 
       expect(result.stats.originalPartCount).toBe(2);
       expect(result.stats.finalMeshCount).toBeGreaterThanOrEqual(1);
@@ -122,7 +122,7 @@ describe("sceneBuilder", () => {
       ];
       const model = createMockModel(parts);
 
-      const result = buildScene(model, scene, { verbose: false });
+      const result = buildIfcModel(model, scene, { verbose: false });
 
       expect(result.stats.materialCount).toBe(2);
     });
@@ -134,7 +134,7 @@ describe("sceneBuilder", () => {
       ];
       const model = createMockModel(parts);
 
-      const result = buildScene(model, scene, { verbose: false });
+      const result = buildIfcModel(model, scene, { verbose: false });
 
       expect(result.stats.materialCount).toBe(1);
     });
@@ -143,7 +143,7 @@ describe("sceneBuilder", () => {
       const part = createMockPart({ color: null, colorId: 0 });
       const model = createMockModel([part]);
 
-      const result = buildScene(model, scene, { verbose: false });
+      const result = buildIfcModel(model, scene, { verbose: false });
 
       expect(result.meshes.length).toBeGreaterThan(0);
       expect(result.meshes[0].material).toBeDefined();
@@ -152,7 +152,7 @@ describe("sceneBuilder", () => {
     it("should set metadata on meshes", () => {
       const model = createMockModel();
 
-      const result = buildScene(model, scene, { verbose: false });
+      const result = buildIfcModel(model, scene, { verbose: false });
 
       expect(result.meshes[0].metadata).toBeDefined();
       expect(result.meshes[0].metadata.expressID).toBeDefined();
@@ -162,7 +162,7 @@ describe("sceneBuilder", () => {
     it("should set mesh parent to root node", () => {
       const model = createMockModel();
 
-      const result = buildScene(model, scene, { verbose: false });
+      const result = buildIfcModel(model, scene, { verbose: false });
 
       result.meshes.forEach((mesh) => {
         expect(mesh.parent).toBe(result.rootNode);
@@ -174,11 +174,11 @@ describe("sceneBuilder", () => {
   // Options Tests
   // ==========================================================================
 
-  describe("buildScene options", () => {
+  describe("buildIfcModel options", () => {
     it("should use default options when none provided", () => {
       const model = createMockModel();
 
-      const result = buildScene(model, scene);
+      const result = buildIfcModel(model, scene);
 
       expect(result).toBeDefined();
       // Default options: mergeMeshes=true, autoCenter=true, doubleSided=true
@@ -188,7 +188,7 @@ describe("sceneBuilder", () => {
       const parts = [createMockPart({ expressID: 100, colorId: 1 }), createMockPart({ expressID: 100, colorId: 1 })];
       const model = createMockModel(parts);
 
-      const result = buildScene(model, scene, { mergeMeshes: false, verbose: false });
+      const result = buildIfcModel(model, scene, { mergeMeshes: false, verbose: false });
 
       // Without merging, should have 2 separate meshes
       expect(result.meshes.length).toBe(2);
@@ -200,7 +200,7 @@ describe("sceneBuilder", () => {
       });
       const model = createMockModel([part]);
 
-      const result = buildScene(model, scene, { autoCenter: false, verbose: false });
+      const result = buildIfcModel(model, scene, { autoCenter: false, verbose: false });
 
       // Root node position should not be modified
       expect(result.rootNode.position.x).toBe(0);
@@ -211,7 +211,7 @@ describe("sceneBuilder", () => {
     it("should respect doubleSided option for materials", () => {
       const model = createMockModel();
 
-      buildScene(model, scene, { doubleSided: true, verbose: false });
+      buildIfcModel(model, scene, { doubleSided: true, verbose: false });
 
       const material = scene.materials[0];
       expect(material).toBeDefined();
@@ -222,7 +222,7 @@ describe("sceneBuilder", () => {
     it("should set backFaceCulling=true when doubleSided=false", () => {
       const model = createMockModel();
 
-      buildScene(model, scene, { doubleSided: false, verbose: false });
+      buildIfcModel(model, scene, { doubleSided: false, verbose: false });
 
       const material = scene.materials[0];
       expect((material as any).backFaceCulling).toBe(true);
@@ -232,7 +232,7 @@ describe("sceneBuilder", () => {
       const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
       const model = createMockModel();
 
-      buildScene(model, scene, { verbose: true });
+      buildIfcModel(model, scene, { verbose: true });
 
       expect(consoleSpy).toHaveBeenCalled();
 
@@ -243,7 +243,7 @@ describe("sceneBuilder", () => {
       const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
       const model = createMockModel();
 
-      buildScene(model, scene, { verbose: false });
+      buildIfcModel(model, scene, { verbose: false });
 
       expect(consoleSpy).not.toHaveBeenCalled();
 
@@ -253,7 +253,7 @@ describe("sceneBuilder", () => {
     it("should respect freezeAfterBuild option", () => {
       const model = createMockModel();
 
-      const result = buildScene(model, scene, { freezeAfterBuild: true, verbose: false });
+      const result = buildIfcModel(model, scene, { freezeAfterBuild: true, verbose: false });
 
       // Meshes should be frozen
       result.meshes.forEach((mesh) => {
@@ -264,7 +264,7 @@ describe("sceneBuilder", () => {
     it("should not freeze meshes when freezeAfterBuild=false", () => {
       const model = createMockModel();
 
-      const result = buildScene(model, scene, { freezeAfterBuild: false, verbose: false });
+      const result = buildIfcModel(model, scene, { freezeAfterBuild: false, verbose: false });
 
       // Meshes should not be frozen
       result.meshes.forEach((mesh) => {
@@ -286,7 +286,7 @@ describe("sceneBuilder", () => {
 
     it("should calculate bounds for meshes", () => {
       const model = createMockModel();
-      const result = buildScene(model, scene, { verbose: false, autoCenter: false });
+      const result = buildIfcModel(model, scene, { verbose: false, autoCenter: false });
 
       const bounds = getModelBounds(result.meshes);
 
@@ -304,7 +304,7 @@ describe("sceneBuilder", () => {
         indices: new Uint32Array([0, 1, 2, 1, 3, 2]),
       });
       const model = createMockModel([part]);
-      const result = buildScene(model, scene, { verbose: false, autoCenter: false });
+      const result = buildIfcModel(model, scene, { verbose: false, autoCenter: false });
 
       const bounds = getModelBounds(result.meshes);
 
@@ -319,7 +319,7 @@ describe("sceneBuilder", () => {
         indices: new Uint32Array([0, 1, 2, 1, 3, 2]),
       });
       const model = createMockModel([part]);
-      const result = buildScene(model, scene, { verbose: false, autoCenter: false });
+      const result = buildIfcModel(model, scene, { verbose: false, autoCenter: false });
 
       const bounds = getModelBounds(result.meshes);
 
@@ -333,7 +333,7 @@ describe("sceneBuilder", () => {
         indices: new Uint32Array([0, 1, 2]),
       });
       const model = createMockModel([part]);
-      const result = buildScene(model, scene, { verbose: false, autoCenter: false });
+      const result = buildIfcModel(model, scene, { verbose: false, autoCenter: false });
 
       const bounds = getModelBounds(result.meshes);
 
@@ -343,7 +343,7 @@ describe("sceneBuilder", () => {
 
     it("should skip invisible meshes", () => {
       const model = createMockModel();
-      const result = buildScene(model, scene, { verbose: false });
+      const result = buildIfcModel(model, scene, { verbose: false });
 
       // Hide all meshes
       result.meshes.forEach((mesh) => {
@@ -374,7 +374,7 @@ describe("sceneBuilder", () => {
         positions: new Float32Array([10, 10, 10, 12, 10, 10, 10, 12, 10]),
       });
       const model = createMockModel([part]);
-      const result = buildScene(model, scene, { verbose: false, autoCenter: false });
+      const result = buildIfcModel(model, scene, { verbose: false, autoCenter: false });
 
       const offset = centerModelAtOrigin(result.meshes);
 
@@ -387,7 +387,7 @@ describe("sceneBuilder", () => {
         positions: new Float32Array([10, 10, 10, 12, 10, 10, 10, 12, 10]),
       });
       const model = createMockModel([part]);
-      const result = buildScene(model, scene, { verbose: false, autoCenter: false });
+      const result = buildIfcModel(model, scene, { verbose: false, autoCenter: false });
 
       const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
       const offset = centerModelAtOrigin(result.meshes, result.rootNode);
@@ -401,7 +401,7 @@ describe("sceneBuilder", () => {
     it("should log offset when centering", () => {
       const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
       const model = createMockModel();
-      const result = buildScene(model, scene, { verbose: false, autoCenter: false });
+      const result = buildIfcModel(model, scene, { verbose: false, autoCenter: false });
 
       centerModelAtOrigin(result.meshes);
 
@@ -418,7 +418,7 @@ describe("sceneBuilder", () => {
   describe("disposeIfcScene", () => {
     it("should dispose IFC materials", () => {
       const model = createMockModel();
-      buildScene(model, scene, { verbose: false });
+      buildIfcModel(model, scene, { verbose: false });
 
       const materialCount = scene.materials.length;
       expect(materialCount).toBeGreaterThan(0);
@@ -432,7 +432,7 @@ describe("sceneBuilder", () => {
 
     it("should dispose ifc-root node", () => {
       const model = createMockModel();
-      buildScene(model, scene, { verbose: false });
+      buildIfcModel(model, scene, { verbose: false });
 
       const rootNode = scene.getTransformNodeByName("ifc-root");
       expect(rootNode).toBeDefined();
@@ -450,7 +450,7 @@ describe("sceneBuilder", () => {
 
     it("should log disposal", () => {
       const model = createMockModel();
-      buildScene(model, scene, { verbose: false });
+      buildIfcModel(model, scene, { verbose: false });
 
       const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
       disposeIfcScene(scene);
@@ -473,7 +473,7 @@ describe("sceneBuilder", () => {
       });
       const model = createMockModel([translatedPart]);
 
-      const result = buildScene(model, scene, { verbose: false, autoCenter: false });
+      const result = buildIfcModel(model, scene, { verbose: false, autoCenter: false });
 
       // The transform should be baked into vertices
       expect(result.meshes.length).toBeGreaterThan(0);
@@ -485,7 +485,7 @@ describe("sceneBuilder", () => {
       });
       const model = createMockModel([part]);
 
-      const result = buildScene(model, scene, { verbose: false });
+      const result = buildIfcModel(model, scene, { verbose: false });
 
       expect(result.meshes.length).toBeGreaterThan(0);
     });
@@ -500,7 +500,7 @@ describe("sceneBuilder", () => {
       const model = createMockModel();
       model.storeyMap = new Map();
 
-      const result = buildScene(model, scene, { verbose: false });
+      const result = buildIfcModel(model, scene, { verbose: false });
 
       expect(result).toBeDefined();
     });
@@ -523,7 +523,7 @@ describe("sceneBuilder", () => {
       const modelWithStoreys = createMockModel(partsWithDifferentStoreys);
       modelWithStoreys.storeyMap = new Map();
 
-      const result = buildScene(modelWithStoreys, scene, { verbose: false, mergeMeshes: true });
+      const result = buildIfcModel(modelWithStoreys, scene, { verbose: false, mergeMeshes: true });
 
       expect(result).toBeDefined();
     });
@@ -537,7 +537,7 @@ describe("sceneBuilder", () => {
     it("should handle empty parts array", () => {
       const model = createMockModel([]);
 
-      const result = buildScene(model, scene, { verbose: false });
+      const result = buildIfcModel(model, scene, { verbose: false });
 
       expect(result.meshes.length).toBe(0);
       expect(result.stats.originalPartCount).toBe(0);
@@ -546,7 +546,7 @@ describe("sceneBuilder", () => {
     it("should handle single part", () => {
       const model = createMockModel([createMockPart()]);
 
-      const result = buildScene(model, scene, { verbose: false });
+      const result = buildIfcModel(model, scene, { verbose: false });
 
       expect(result.meshes.length).toBe(1);
     });
@@ -557,7 +557,7 @@ describe("sceneBuilder", () => {
       });
       const model = createMockModel([part]);
 
-      const result = buildScene(model, scene, { verbose: false, generateNormals: true });
+      const result = buildIfcModel(model, scene, { verbose: false, generateNormals: true });
 
       expect(result.meshes.length).toBeGreaterThan(0);
     });
@@ -568,7 +568,7 @@ describe("sceneBuilder", () => {
       });
       const model = createMockModel([part]);
 
-      const result = buildScene(model, scene, { verbose: false });
+      const result = buildIfcModel(model, scene, { verbose: false });
 
       expect(result.meshes.length).toBeGreaterThan(0);
     });
@@ -580,7 +580,7 @@ describe("sceneBuilder", () => {
       });
       const model = createMockModel([part]);
 
-      const result = buildScene(model, scene, { verbose: false });
+      const result = buildIfcModel(model, scene, { verbose: false });
 
       expect(result.meshes[0].material).toBeDefined();
       expect((result.meshes[0].material as any).alpha).toBe(0.5);
@@ -593,7 +593,7 @@ describe("sceneBuilder", () => {
       ];
       const model = createMockModel(parts);
 
-      const result = buildScene(model, scene, { verbose: false });
+      const result = buildIfcModel(model, scene, { verbose: false });
 
       // Should create separate meshes for different colors
       expect(result.stats.materialCount).toBe(2);
@@ -612,7 +612,7 @@ describe("sceneBuilder", () => {
       });
       const model = createMockModel([part]);
 
-      const result = buildScene(model, scene, { verbose: false });
+      const result = buildIfcModel(model, scene, { verbose: false });
 
       const material = result.meshes[0].material;
       expect(material).toBeDefined();
@@ -625,7 +625,7 @@ describe("sceneBuilder", () => {
     it("should set z-offset on materials to prevent z-fighting", () => {
       const model = createMockModel();
 
-      const result = buildScene(model, scene, { verbose: false });
+      const result = buildIfcModel(model, scene, { verbose: false });
 
       const material = result.meshes[0].material;
       expect((material as any).zOffset).toBeDefined();
@@ -635,7 +635,7 @@ describe("sceneBuilder", () => {
       const part = createMockPart({ colorId: 123 });
       const model = createMockModel([part]);
 
-      const result = buildScene(model, scene, { verbose: false });
+      const result = buildIfcModel(model, scene, { verbose: false });
 
       const material = result.meshes[0].material;
       expect(material!.name).toBe("ifc-material-123");

@@ -49,11 +49,11 @@ All web-ifc interaction. **Zero Babylon.js dependencies.**
 - `closeIfcModel(ifcAPI, modelID)` — free IFC model memory
 - `getProjectInfo(ifcAPI, modelID)` — extract project metadata
 
-### Rendering Layer (`src/sceneBuilder.ts`)
+### Rendering Layer (`src/ifcModel.ts`)
 
 All Babylon.js scene construction. **Zero web-ifc dependencies.**
 
-- `buildScene(model, scene, options?)` — create meshes, materials, merge, center
+- `buildIfcModel(model, scene, options?)` — create meshes, materials, merge, center
 - `disposeIfcScene(scene)` — dispose all IFC meshes and materials
 - `getModelBounds(meshes)` — calculate bounding box
 - `centerModelAtOrigin(meshes, rootNode?)` — center model at origin
@@ -80,7 +80,7 @@ const model = await loadIfcModel(ifcAPI, "/test.ifc", {
 const projectInfo = getProjectInfo(ifcAPI, model.modelID);
 
 // Step 4: Build Babylon.js scene (Babylon only)
-const { meshes, rootNode, stats } = buildScene(model, scene, {
+const { meshes, rootNode, stats } = buildIfcModel(model, scene, {
   autoCenter: true,
   mergeMeshes: true,
   doubleSided: true,
@@ -128,7 +128,7 @@ The project uses [Vitest](https://vitest.dev/) for unit testing with the followi
 | `loadIfcModel.test.ts`     | Tests for IFC model loading           |
 | `closeIfcModel.test.ts`    | Tests for model cleanup               |
 | `getProjectInfo.test.ts`   | Tests for project metadata extraction |
-| `sceneBuilder.test.ts`     | Tests for Babylon.js scene building   |
+| `buildIfcModel.test.ts`    | Tests for Babylon.js scene building   |
 
 ### Running Tests
 
@@ -168,7 +168,7 @@ describe("myFunction", () => {
 src/
 ├── main.ts          — app entry, scene, camera, picking, drag-and-drop
 ├── ifcInit.ts       — IFC data layer (web-ifc only)
-├── sceneBuilder.ts  — rendering layer (Babylon.js only)
+├── ifcModel.ts      — rendering layer (Babylon.js only)
 └── style.css        — basic styling
 
 public/
@@ -195,6 +195,28 @@ Root
 - Meshes are merged per (expressID + color) when safe; safety check prevents merging across different storeys using spatial relations
 - Metadata (`expressID`, `modelID`) preserved on merged meshes
 - Stats for counts, triangles, materials, and build time are computed
+
+### Custom Merging Strategy
+
+When `mergeMeshes = false`, each geometry part remains as a separate mesh with full metadata. This lets you implement your own merging strategy based on:
+
+- Mesh metadata (`expressID`, `modelID`) for element identification
+- IFC queries via `ifcAPI.GetLine()` for property-based grouping
+- Spatial relationships for storey/zone-based organization
+- Material or color-based batching
+
+Example:
+
+```typescript
+const { meshes } = buildIfcModel(model, scene, { mergeMeshes: false });
+
+// Custom grouping by IFC type
+for (const mesh of meshes) {
+  const element = ifcAPI.GetLine(modelID, mesh.metadata.expressID, true);
+  const typeName = ifcAPI.GetNameFromTypeCode(element.type);
+  // Group or merge meshes by typeName, storey, etc.
+}
+```
 
 ## Coordinate System and Geometry
 
