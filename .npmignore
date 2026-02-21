@@ -1,0 +1,34 @@
+# Source files
+src/
+!dist/
+
+# Test files
+src/__tests__/
+**/*.test.ts
+**/*.spec.ts
+
+# Development files
+examples/
+public/
+index.html
+index-main.html
+
+# Config files
+tsconfig.json
+tsconfig.build.json
+vite.config.ts
+.gitignore
+.git/
+
+# IDE
+.vscode/
+.idea/
+
+# Build artifacts
+*.log
+node_modules/
+coverage/
+
+# Misc
+.DS_Store
+Thumbs.db
