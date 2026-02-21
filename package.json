@@ -41,7 +41,7 @@
     "loader",
     "scene-loader"
   ],
-  "author":  {
+  "author": {
     "name": "Andrei Stepanov",
     "email": "eldinor@gmail.com",
     "url": "https://babylonpress.org/"
@@ -68,9 +68,10 @@
     "vite-plugin-static-copy": "^3.2.0"
   },
   "dependencies": {
-    "@babylonjs/core": "^8.52.0",
+    "@babylonjs/core": ">=6.0.0",
     "@babylonjs/inspector": "^8.52.0",
+    "@babylonjs/viewer": "^8.52.0",
     "vitest": "^4.0.18",
-    "web-ifc": "^0.0.75"
+    "web-ifc": ">=0.0.50"
   }
 }
