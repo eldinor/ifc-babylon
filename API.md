@@ -8,6 +8,9 @@ This document provides detailed API reference for the IFC Viewer library. The co
   - [loadIfc](#loadifc)
   - [configureIfcLoader](#configureifcloader)
   - [disposeIfc](#disposeifc)
+  - [getWebIfcAPI](#getwebifcapi)
+  - [getIfcProjectInfo](#getifcprojectinfo)
+  - [resetIfcLoader](#resetifcloader)
   - [IfcLoaderPlugin](#ifcloaderplugin)
   - [Types](#types-ifcloader)
 - [IFC Data Layer (ifcInit.ts)](#ifc-data-layer-ifcinitts)
@@ -129,6 +132,86 @@ import { disposeIfc } from "./ifcLoader";
 
 // Clean up when loading a new model
 disposeIfc(scene, previousModelID);
+```
+
+---
+
+### getWebIfcAPI
+
+Get the global web-ifc API instance. Useful for advanced queries like element picking.
+
+```typescript
+async function getWebIfcAPI(): Promise<WebIFC.IfcAPI>;
+```
+
+#### Returns
+
+`Promise<WebIFC.IfcAPI>` - The global web-ifc API instance.
+
+#### Example
+
+```typescript
+import { getWebIfcAPI } from "./ifcLoader";
+
+// Get API instance for element queries
+const ifcAPI = await getWebIfcAPI();
+const element = ifcAPI.GetLine(modelID, expressID, true);
+const typeName = ifcAPI.GetNameFromTypeCode(element.type);
+```
+
+---
+
+### getIfcProjectInfo
+
+Get project info from a loaded model using the global API instance.
+
+```typescript
+function getIfcProjectInfo(modelID: number): ProjectInfoResult | null;
+```
+
+#### Parameters
+
+| Parameter | Type     | Required | Description                            |
+| --------- | -------- | -------- | -------------------------------------- |
+| `modelID` | `number` | Yes      | Model ID returned from `loadIfcModel`. |
+
+#### Returns
+
+`ProjectInfoResult | null` - Project metadata, or `null` if no model is loaded.
+
+#### Example
+
+```typescript
+import { getIfcProjectInfo } from "./ifcLoader";
+
+const projectInfo = getIfcProjectInfo(result.modelID);
+if (projectInfo) {
+  console.log(`Project: ${projectInfo.projectName}`);
+}
+```
+
+---
+
+### resetIfcLoader
+
+Reset the global web-ifc API instance and options. Useful for testing or reconfiguration.
+
+```typescript
+function resetIfcLoader(): void;
+```
+
+#### Example
+
+```typescript
+import { resetIfcLoader } from "./ifcLoader";
+
+// Reset before reconfiguring
+resetIfcLoader();
+
+// Now configure with new options
+configureIfcLoader({
+  wasmPath: "/custom/path/",
+});
 ```
 
 ---
