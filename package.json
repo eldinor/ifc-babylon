@@ -41,8 +41,12 @@
     "loader",
     "scene-loader"
   ],
-  "author": "",
-  "license": "MIT",
+  "author":  {
+    "name": "Andrei Stepanov",
+    "email": "eldinor@gmail.com",
+    "url": "https://babylonpress.org/"
+  },
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/eldinor/ifc-babylon.git"
@@ -64,8 +68,8 @@
     "vite-plugin-static-copy": "^3.2.0"
   },
   "dependencies": {
-    "@babylonjs/core": "^8.51.2",
-    "@babylonjs/inspector": "^8.51.2",
+    "@babylonjs/core": "^8.52.0",
+    "@babylonjs/inspector": "^8.52.0",
     "vitest": "^4.0.18",
     "web-ifc": "^0.0.75"
   }
