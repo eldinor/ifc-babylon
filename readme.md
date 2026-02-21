@@ -24,7 +24,14 @@ npm test
 npm run test:coverage
 ```
 
-Open http://localhost:5173 and the sample IFC file `public/test.ifc` will load automatically.
+### Dev Server URLs
+
+After running `npm run dev`, open one of these URLs:
+
+| URL                                   | Entry Point      | Description                                      |
+| ------------------------------------- | ---------------- | ------------------------------------------------ |
+| http://localhost:5173/                | `main-loader.ts` | Uses high-level loader plugin API                |
+| http://localhost:5173/index-main.html | `main.ts`        | Uses low-level two-step API (ifcInit + ifcModel) |
 
 ## Features
 
@@ -58,13 +65,65 @@ All Babylon.js scene construction. **Zero web-ifc dependencies.**
 - `getModelBounds(meshes)` — calculate bounding box
 - `centerModelAtOrigin(meshes, rootNode?)` — center model at origin
 
-### Application Layer (`src/main.ts`)
+### Loader Plugin Layer (`src/ifcLoader.ts`)
 
-App orchestration, camera control, picking, drag-and-drop, and scene management.
+High-level Babylon.js SceneLoader plugin. Integrates both layers for easy use.
+
+- `loadIfc(source, scene, options?)` — load IFC file with single function call
+- `disposeIfc(scene, modelID)` — dispose model and free memory
+- `configureIfcLoader(options)` — configure global loader options
+- `getWebIfcAPI()` — get web-ifc API instance for advanced queries
+- `getIfcProjectInfo(modelID)` — get project info from loaded model
+- `resetIfcLoader()` — reset global state (useful for testing)
+
+### Application Layer
+
+- `src/main.ts` — uses low-level two-step API (ifcInit + ifcModel)
+- `src/main-loader.ts` — uses high-level loader plugin API
 
 ## Usage
 
-### Two-Step Loading API
+### High-Level Loader Plugin (Recommended)
+
+The simplest way to load IFC files using the Babylon.js SceneLoader plugin:
+
+```typescript
+import { loadIfc, disposeIfc, configureIfcLoader, getWebIfcAPI } from "./ifcLoader";
+
+// Configure the loader (optional, call before loading)
+configureIfcLoader({
+  wasmPath: "./",
+  defaultLoadOptions: {
+    mergeMeshes: true,
+    autoCenter: true,
+  },
+});
+
+// Load IFC file with a single function call
+const result = await loadIfc("/model.ifc", scene);
+
+// Access loaded data
+console.log(`Loaded ${result.meshes.length} meshes`);
+console.log(`Project: ${result.projectInfo.projectName}`);
+console.log(`Build time: ${result.stats.buildTimeMs}ms`);
+
+// Position camera using bounds
+if (result.bounds) {
+  camera.target = result.bounds.center;
+  camera.radius = result.bounds.diagonal * 1.5;
+}
+
+// Get web-ifc API for element queries (e.g., in picking handler)
+const ifcAPI = await getWebIfcAPI();
+const element = ifcAPI.GetLine(result.modelID, expressID, true);
+
+// Cleanup when done
+disposeIfc(scene, result.modelID);
+```
+
+### Two-Step Loading API (Low-Level)
+
+For more control, use the two-step API directly:
 
 ```typescript
 // Step 1: Initialize web-ifc
@@ -166,10 +225,13 @@ describe("myFunction", () => {
 
 ```
 src/
-├── main.ts          — app entry, scene, camera, picking, drag-and-drop
+├── main.ts          — app entry (low-level two-step API)
+├── main-loader.ts   — app entry (high-level loader plugin API)
 ├── ifcInit.ts       — IFC data layer (web-ifc only)
 ├── ifcModel.ts      — rendering layer (Babylon.js only)
-└── style.css        — basic styling
+├── ifcLoader.ts     — Babylon.js SceneLoader plugin (high-level API)
+├── style.css        — basic styling
+└── __tests__/       — unit tests
 
 public/
 ├── test.ifc         — sample IFC file loaded at startup
@@ -177,7 +239,8 @@ public/
 └── bplogo.svg       — asset
 
 Root
-├── index.html       — canvas and UI scaffolding
+├── index.html       — HTML entry for loader plugin API (default)
+├── index-main.html  — HTML entry for two-step API (/index-main.html)
 ├── vite.config.ts   — copies web-ifc.wasm to dist/, sets WASM handling
 ├── tsconfig.json    — TypeScript config
 └── package.json     — scripts and deps
