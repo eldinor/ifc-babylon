@@ -1,6 +1,8 @@
-# Babylon.js IFC Viewer
+# Babylon.js IFC Loader Plugin
 
-Interactive IFC viewer built with Babylon.js and web-ifc. Features automatic loading of sample IFC files, drag-and-drop support, intelligent mesh merging, element picking with metadata display, and automatic camera framing.
+IFC Loader Plugin built with Babylon.js and web-ifc. Features automatic loading of sample IFC files, drag-and-drop support, intelligent mesh merging, element picking with metadata display, and automatic camera framing.
+
+While providing the minimal viewer experience, this repo is dedicated to developing and testing the IFC Loader Plugin. The viewer is provided for testing and demonstration purposes only. Full-featured Babylon.js IFC Viewer will be available in a separate repo later.
 
 ## Quick Start
 
@@ -221,6 +223,61 @@ describe("myFunction", () => {
 });
 ```
 
+## Testing the NPM Package
+
+After running `npm run test:pack`, you can verify the packed package works correctly using the test scripts in `examples/test-usage/`.
+
+### Step 1: Install the Packed Package
+
+```bash
+cd examples/test-usage
+npm install
+```
+
+This installs the packed `babylon-ifc-loader-1.0.0.tgz` file.
+
+### Step 2: Run Import Tests
+
+```bash
+# Test ESM import
+npm run test:esm
+
+# Test CommonJS import
+npm run test:cjs
+
+# Test both
+npm run test:all
+```
+
+These tests verify that:
+
+- `loadIfc` function is exported correctly
+- `configureIfcLoader` function is exported correctly
+- `IfcLoaderPlugin` class is exported correctly
+- `configureIfcLoader` can be called with options
+
+### Step 3: Visual Test (Optional)
+
+```bash
+npm run dev
+```
+
+Then open http://localhost:5174/ in your browser to test the full application with IFC loading.
+
+### Expected Output
+
+```
+=== ESM Import Test ===
+✓ loadIfc function: function
+✓ configureIfcLoader function: function
+✓ IfcLoaderPlugin class: function
+✓ IfcLoaderPlugin.name: IfcLoaderPlugin
+✓ IfcLoaderPlugin.defaultOptions: object
+✓ configureIfcLoader called successfully
+
+=== ESM Test Complete ===
+```
+
 ## Project Structure
 
 ```
@@ -313,4 +370,4 @@ for (const mesh of meshes) {
 
 ## License
 
-MIT
+Apache-2.0 - See [LICENSE](./LICENSE) for details.

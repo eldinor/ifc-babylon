@@ -1,11 +1,11 @@
 /**
- * IFC Viewer using the ifcLoader plugin
+ * Test Application for babylon-ifc-loader NPM Package
  *
- * This file demonstrates using the high-level IFC loader plugin API
- * instead of the manual two-step approach (ifcInit + ifcModel).
+ * This file verifies the NPM package works correctly by importing
+ * from 'babylon-ifc-loader' instead of local paths.
  */
-import { loadIfc, disposeIfc, configureIfcLoader, getWebIfcAPI } from "./ifcLoader";
-import type { IfcLoaderResult } from "./ifcLoader";
+import { loadIfc, disposeIfc, configureIfcLoader, getWebIfcAPI } from "babylon-ifc-loader";
+import type { IfcLoaderResult } from "babylon-ifc-loader";
 import { Engine, Scene, ArcRotateCamera, HemisphericLight, Vector3, AbstractMesh, Color3 } from "@babylonjs/core";
 
 // Configure the IFC loader before any loading
@@ -64,7 +64,6 @@ const setupPickingHandler = (scene: Scene) => {
           const typeName = ifcAPI.GetNameFromTypeCode(element.type);
           console.log(`  Element type name:`, typeName);
           console.log(`  Element data:`, element);
-          console.log(`  Element type:`, element.type);
 
           // Safely access Name property
           const elementName = element.Name?.value || "Unnamed";
@@ -164,11 +163,6 @@ const adjustCameraToMeshes = (result: IfcLoaderResult, camera: ArcRotateCamera) 
     `  Model center: (${bounds.center.x.toFixed(2)}, ${bounds.center.y.toFixed(2)}, ${bounds.center.z.toFixed(2)})`,
   );
   console.log(`  Model diagonal: ${bounds.diagonal.toFixed(2)}`);
-  console.log(
-    `  Bounds: X[${bounds.min.x.toFixed(2)}, ${bounds.max.x.toFixed(2)}], ` +
-      `Y[${bounds.min.y.toFixed(2)}, ${bounds.max.y.toFixed(2)}], ` +
-      `Z[${bounds.min.z.toFixed(2)}, ${bounds.max.z.toFixed(2)}]`,
-  );
 
   // Position camera to view the entire model with a good perspective
   camera.target = bounds.center;
@@ -192,7 +186,7 @@ const adjustCameraToMeshes = (result: IfcLoaderResult, camera: ArcRotateCamera) 
  * Load an IFC file using the loader plugin
  */
 const loadIfcFile = async (scene: Scene, source: string | File): Promise<IfcLoaderResult> => {
-  console.log(`\n📦 Loading IFC file using ifcLoader plugin...`);
+  console.log(`\n📦 Loading IFC file using babylon-ifc-loader NPM package...`);
 
   const result = await loadIfc(source, scene);
 
@@ -252,8 +246,6 @@ const createScene = async (): Promise<Scene> => {
     console.error("Failed to load initial IFC file:", error);
     console.log("  You can drag and drop an IFC file to load it");
   }
-
-  console.log(scene);
 
   return scene;
 };
@@ -327,11 +319,6 @@ canvas.addEventListener("drop", async (e) => {
 
     currentResult = result;
 
-    // Log hierarchy information
-    if (result.rootNode) {
-      console.log(`Child meshes: ${result.rootNode.getChildMeshes().length}`);
-    }
-
     // Show project info in upper text
     showProjectInfo(result);
 
@@ -349,45 +336,5 @@ canvas.addEventListener("drop", async (e) => {
   }
 });
 
-// Add a reset camera button or functionality (optional)
-//@ts-ignore
-const resetCamera = () => {
-  if (currentResult) {
-    const camera = scene.activeCamera as ArcRotateCamera;
-    if (camera) {
-      adjustCameraToMeshes(currentResult, camera);
-      console.log("Camera reset to view full model");
-    }
-  }
-};
-
-// Track inspector state for toggle functionality
-let inspectorLoaded = false;
-
-// Add Ctrl+I keyboard shortcut to toggle Babylon Inspector
-window.addEventListener("keydown", async (e) => {
-  // Check for Ctrl+I (or Cmd+I on Mac) - use e.code for layout-independent detection
-  if ((e.ctrlKey || e.metaKey) && e.code === "KeyI") {
-    e.preventDefault();
-
-    // Dynamically import the inspector if not already loaded
-    if (!inspectorLoaded) {
-      try {
-        await import("@babylonjs/inspector");
-        inspectorLoaded = true;
-      } catch (error) {
-        console.error("Failed to load Babylon Inspector:", error);
-        return;
-      }
-    }
-
-    // Toggle inspector visibility using scene.debugLayer
-    if (scene.debugLayer.isVisible()) {
-      scene.debugLayer.hide();
-      console.log("Inspector hidden");
-    } else {
-      await scene.debugLayer.show({ embedMode: false });
-      console.log("Inspector shown");
-    }
-  }
-});
+console.log("✅ babylon-ifc-loader NPM package test app initialized");
+console.log("   Import from 'babylon-ifc-loader' working correctly!");
