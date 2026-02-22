@@ -1,6 +1,8 @@
-# Babylon.js IFC Viewer
+# Babylon.js IFC Loader Plugin
 
-Interactive IFC viewer built with Babylon.js and web-ifc. Features automatic loading of sample IFC files, drag-and-drop support, intelligent mesh merging, element picking with metadata display, and automatic camera framing.
+IFC Loader Plugin built with Babylon.js and web-ifc. Features automatic loading of sample IFC files, drag-and-drop support, intelligent mesh merging, element picking with metadata display, and automatic camera framing.
+
+While providing the minimal viewer experience, this repo is dedicated to developing and testing the IFC Loader Plugin. The viewer is provided for testing and demonstration purposes only. Full-featured Babylon.js IFC Viewer will be available in a separate repo later.
 
 ## Quick Start
 
@@ -24,7 +26,14 @@ npm test
 npm run test:coverage
 ```
 
-Open http://localhost:5173 and the sample IFC file `public/test.ifc` will load automatically.
+### Dev Server URLs
+
+After running `npm run dev`, open one of these URLs:
+
+| URL                                   | Entry Point      | Description                                      |
+| ------------------------------------- | ---------------- | ------------------------------------------------ |
+| http://localhost:5173/                | `main-loader.ts` | Uses high-level loader plugin API                |
+| http://localhost:5173/index-main.html | `main.ts`        | Uses low-level two-step API (ifcInit + ifcModel) |
 
 ## Features
 
@@ -58,13 +67,65 @@ All Babylon.js scene construction. **Zero web-ifc dependencies.**
 - `getModelBounds(meshes)` — calculate bounding box
 - `centerModelAtOrigin(meshes, rootNode?)` — center model at origin
 
-### Application Layer (`src/main.ts`)
+### Loader Plugin Layer (`src/ifcLoader.ts`)
 
-App orchestration, camera control, picking, drag-and-drop, and scene management.
+High-level Babylon.js SceneLoader plugin. Integrates both layers for easy use.
+
+- `loadIfc(source, scene, options?)` — load IFC file with single function call
+- `disposeIfc(scene, modelID)` — dispose model and free memory
+- `configureIfcLoader(options)` — configure global loader options
+- `getWebIfcAPI()` — get web-ifc API instance for advanced queries
+- `getIfcProjectInfo(modelID)` — get project info from loaded model
+- `resetIfcLoader()` — reset global state (useful for testing)
+
+### Application Layer
+
+- `src/main.ts` — uses low-level two-step API (ifcInit + ifcModel)
+- `src/main-loader.ts` — uses high-level loader plugin API
 
 ## Usage
 
-### Two-Step Loading API
+### High-Level Loader Plugin (Recommended)
+
+The simplest way to load IFC files using the Babylon.js SceneLoader plugin:
+
+```typescript
+import { loadIfc, disposeIfc, configureIfcLoader, getWebIfcAPI } from "./ifcLoader";
+
+// Configure the loader (optional, call before loading)
+configureIfcLoader({
+  wasmPath: "./",
+  defaultLoadOptions: {
+    mergeMeshes: true,
+    autoCenter: true,
+  },
+});
+
+// Load IFC file with a single function call
+const result = await loadIfc("/model.ifc", scene);
+
+// Access loaded data
+console.log(`Loaded ${result.meshes.length} meshes`);
+console.log(`Project: ${result.projectInfo.projectName}`);
+console.log(`Build time: ${result.stats.buildTimeMs}ms`);
+
+// Position camera using bounds
+if (result.bounds) {
+  camera.target = result.bounds.center;
+  camera.radius = result.bounds.diagonal * 1.5;
+}
+
+// Get web-ifc API for element queries (e.g., in picking handler)
+const ifcAPI = await getWebIfcAPI();
+const element = ifcAPI.GetLine(result.modelID, expressID, true);
+
+// Cleanup when done
+disposeIfc(scene, result.modelID);
+```
+
+### Two-Step Loading API (Low-Level)
+
+For more control, use the two-step API directly:
 
 ```typescript
 // Step 1: Initialize web-ifc
@@ -162,14 +223,72 @@ describe("myFunction", () => {
 });
 ```
 
+## Testing the NPM Package
+
+After running `npm run test:pack`, you can verify the packed package works correctly using the test scripts in `examples/test-usage/`.
+
+### Step 1: Install the Packed Package
+
+```bash
+cd examples/test-usage
+npm install
+```
+
+This installs the packed `babylon-ifc-loader-1.0.0.tgz` file.
+
+### Step 2: Run Import Tests
+
+```bash
+# Test ESM import
+npm run test:esm
+
+# Test CommonJS import
+npm run test:cjs
+
+# Test both
+npm run test:all
+```
+
+These tests verify that:
+
+- `loadIfc` function is exported correctly
+- `configureIfcLoader` function is exported correctly
+- `IfcLoaderPlugin` class is exported correctly
+- `configureIfcLoader` can be called with options
+
+### Step 3: Visual Test (Optional)
+
+```bash
+npm run dev
+```
+
+Then open http://localhost:5174/ in your browser to test the full application with IFC loading.
+
+### Expected Output
+
+```
+=== ESM Import Test ===
+✓ loadIfc function: function
+✓ configureIfcLoader function: function
+✓ IfcLoaderPlugin class: function
+✓ IfcLoaderPlugin.name: IfcLoaderPlugin
+✓ IfcLoaderPlugin.defaultOptions: object
+✓ configureIfcLoader called successfully
+
+=== ESM Test Complete ===
+```
+
 ## Project Structure
 
 ```
 src/
-├── main.ts          — app entry, scene, camera, picking, drag-and-drop
+├── main.ts          — app entry (low-level two-step API)
+├── main-loader.ts   — app entry (high-level loader plugin API)
 ├── ifcInit.ts       — IFC data layer (web-ifc only)
 ├── ifcModel.ts      — rendering layer (Babylon.js only)
-└── style.css        — basic styling
+├── ifcLoader.ts     — Babylon.js SceneLoader plugin (high-level API)
+├── style.css        — basic styling
+└── __tests__/       — unit tests
 
 public/
 ├── test.ifc         — sample IFC file loaded at startup
@@ -177,7 +296,8 @@ public/
 └── bplogo.svg       — asset
 
 Root
-├── index.html       — canvas and UI scaffolding
+├── index.html       — HTML entry for loader plugin API (default)
+├── index-main.html  — HTML entry for two-step API (/index-main.html)
 ├── vite.config.ts   — copies web-ifc.wasm to dist/, sets WASM handling
 ├── tsconfig.json    — TypeScript config
 └── package.json     — scripts and deps
@@ -250,4 +370,4 @@ for (const mesh of meshes) {
 
 ## License
 
-MIT
+Apache-2.0 - See [LICENSE](./LICENSE) for details.

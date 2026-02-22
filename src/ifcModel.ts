@@ -214,7 +214,7 @@ export function buildIfcModel(model: RawIfcModel, scene: Scene, options: SceneBu
   };
 
   if (opts.verbose) {
-    console.log(`\n✅ Scene building complete:`);
+    console.log(`\n✅ Model building complete:`);
     console.log(`  Original parts: ${stats.originalPartCount}`);
     console.log(`  Merged groups: ${stats.mergedGroupCount}`);
     console.log(`  Skipped groups: ${stats.skippedGroupCount}`);
