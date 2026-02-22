@@ -34,6 +34,7 @@ Open http://localhost:5173 and the sample IFC file `public/test.ifc` will load a
 - **Intelligent Merging:** Automatically merges meshes with same material while preserving metadata
 - **Camera Framing:** Automatically positions camera to view the entire model
 - **Inspector:** Built-in Babylon.js Inspector for debugging
+- **Keyboard Shortcuts:** Ctrl+I (or Cmd+I on Mac) toggles the inspector, works across all keyboard layouts
 - **Memory Management:** Proper cleanup when loading new files
 
 ## Architecture
