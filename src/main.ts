@@ -419,7 +419,7 @@ let inspectorLoaded = false;
 
 // Add Ctrl+I keyboard shortcut to toggle Babylon Inspector
 window.addEventListener("keydown", async (e) => {
-  // Check for Ctrl+I (or Cmd+I on Mac) - use e.code for layout-independent detection
+  // Check for Ctrl+I (or Cmd+I on Mac) - use e.code for keyboard layout independence
   if ((e.ctrlKey || e.metaKey) && e.code === "KeyI") {
     e.preventDefault();
 
