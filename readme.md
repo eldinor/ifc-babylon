@@ -1,8 +1,8 @@
 # Babylon.js IFC Loader Plugin
 
-IFC Loader Plugin built with Babylon.js and web-ifc. Features automatic loading of sample IFC files, drag-and-drop support, intelligent mesh merging, element picking with metadata display, and automatic camera framing.
+IFC Loader built with Babylon.js and web-ifc. Features automatic loading of sample IFC files, drag-and-drop support, intelligent mesh merging, element picking with metadata display, and automatic camera framing.
 
-While providing the minimal viewer experience, this repo is dedicated to developing and testing the IFC Loader Plugin. The viewer is provided for testing and demonstration purposes only. Full-featured Babylon.js IFC Viewer will be available in a separate repo later.
+While providing the minimal viewer experience, this repo is dedicated to developing and testing the IFC Babylon.js Loader. The viewer is provided for testing and demonstration purposes only. Full-featured Babylon.js IFC Babylon.js Viewer will be available in a separate repo later.
 
 ## Quick Start
 

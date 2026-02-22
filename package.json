@@ -3,32 +3,12 @@
   "version": "1.0.0",
   "description": "Babylon.js SceneLoader plugin for IFC files using web-ifc",
   "type": "module",
-  "main": "./dist/index.cjs",
-  "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
-    }
-  },
-  "files": [
-    "dist",
-    "README.md",
-    "API.md"
-  ],
-  "sideEffects": false,
   "scripts": {
     "dev": "vite",
-    "dev:main": "vite",
-    "build": "vite build && tsc -p tsconfig.build.json",
-    "build:lib": "vite build && tsc -p tsconfig.build.json",
+    "build": "vite build",
     "preview": "vite preview",
     "test": "vitest",
-    "test:coverage": "vitest --coverage",
-    "test:pack": "npm run build:lib && npm pack",
-    "prepublishOnly": "npm run build:lib"
+    "test:coverage": "vitest --coverage"
   },
   "keywords": [
     "ifc",
@@ -41,7 +21,7 @@
     "loader",
     "scene-loader"
   ],
-  "author":  {
+  "author": {
     "name": "Andrei Stepanov",
     "email": "eldinor@gmail.com",
     "url": "https://babylonpress.org/"
@@ -55,9 +35,10 @@
     "url": "https://github.com/eldinor/ifc-babylon/issues"
   },
   "homepage": "https://github.com/eldinor/ifc-babylon#readme",
-  "peerDependencies": {
-    "@babylonjs/core": ">=6.0.0",
-    "web-ifc": ">=0.0.50"
+  "dependencies": {
+    "@babylonjs/core": "^8.52.0",
+    "@babylonjs/inspector": "^8.52.0",
+    "web-ifc": "^0.0.75"
   },
   "devDependencies": {
     "@types/node": "^25.3.0",
@@ -65,12 +46,7 @@
     "jsdom": "^28.1.0",
     "typescript": "~5.9.3",
     "vite": "^7.3.1",
-    "vite-plugin-static-copy": "^3.2.0"
-  },
-  "dependencies": {
-    "@babylonjs/core": "^8.52.0",
-    "@babylonjs/inspector": "^8.52.0",
-    "vitest": "^4.0.18",
-    "web-ifc": "^0.0.75"
+    "vite-plugin-static-copy": "^3.2.0",
+    "vitest": "^4.0.18"
   }
 }
