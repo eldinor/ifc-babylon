@@ -253,7 +253,7 @@ export function buildIfcModel(model: RawIfcModel, scene: Scene, options: SceneBu
 /**
  * Dispose all IFC meshes, materials, and the root node
  */
-export function disposeIfcScene(scene: Scene): void {
+export function disposeIfcModel(scene: Scene): void {
   // Dispose all IFC materials
   let materialCount = 0;
   scene.materials.forEach((material) => {

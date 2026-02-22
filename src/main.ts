@@ -1,5 +1,5 @@
 import { initializeWebIFC, loadIfcModel, closeIfcModel, getProjectInfo } from "./ifcInit";
-import { buildIfcModel, disposeIfcScene, getModelBounds } from "./ifcModel";
+import { buildIfcModel, disposeIfcModel, getModelBounds } from "./ifcModel";
 import type { IfcAPI } from "web-ifc";
 import {
   Engine,
@@ -356,7 +356,7 @@ if (ifcAPI) {
         }
 
         // Dispose all meshes, materials, and the ifc-root node
-        disposeIfcScene(scene);
+        disposeIfcModel(scene);
 
         // Close the IFC model and free WASM memory
         if (currentModelID !== null) {

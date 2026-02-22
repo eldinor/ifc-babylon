@@ -26,14 +26,13 @@ npm test
 npm run test:coverage
 ```
 
-### Dev Server URLs
+### Dev Server URL
 
-After running `npm run dev`, open one of these URLs:
+After running `npm run dev`, open:
 
-| URL                                   | Entry Point      | Description                                      |
-| ------------------------------------- | ---------------- | ------------------------------------------------ |
-| http://localhost:5173/                | `main-loader.ts` | Uses high-level loader plugin API                |
-| http://localhost:5173/index-main.html | `main.ts`        | Uses low-level two-step API (ifcInit + ifcModel) |
+| URL                    | Entry Point | Description                                      |
+| ---------------------- | ----------- | ------------------------------------------------ |
+| http://localhost:5173/ | `main.ts`   | Uses low-level two-step API (ifcInit + ifcModel) |
 
 ## Features
 
@@ -64,67 +63,17 @@ All web-ifc interaction. **Zero Babylon.js dependencies.**
 All Babylon.js scene construction. **Zero web-ifc dependencies.**
 
 - `buildIfcModel(model, scene, options?)` — create meshes, materials, merge, center
-- `disposeIfcScene(scene)` — dispose all IFC meshes and materials
+- `disposeIfcModel(scene)` — dispose all IFC meshes and materials
 - `getModelBounds(meshes)` — calculate bounding box
 - `centerModelAtOrigin(meshes, rootNode?)` — center model at origin
-
-### Loader Plugin Layer (`src/ifcLoader.ts`)
-
-High-level Babylon.js SceneLoader plugin. Integrates both layers for easy use.
-
-- `loadIfc(source, scene, options?)` — load IFC file with single function call
-- `disposeIfc(scene, modelID)` — dispose model and free memory
-- `configureIfcLoader(options)` — configure global loader options
-- `getWebIfcAPI()` — get web-ifc API instance for advanced queries
-- `getIfcProjectInfo(modelID)` — get project info from loaded model
-- `resetIfcLoader()` — reset global state (useful for testing)
 
 ### Application Layer
 
 - `src/main.ts` — uses low-level two-step API (ifcInit + ifcModel)
-- `src/main-loader.ts` — uses high-level loader plugin API
 
 ## Usage
 
-### High-Level Loader Plugin (Recommended)
-
-The simplest way to load IFC files using the Babylon.js SceneLoader plugin:
-
-```typescript
-import { loadIfc, disposeIfc, configureIfcLoader, getWebIfcAPI } from "./ifcLoader";
-
-// Configure the loader (optional, call before loading)
-configureIfcLoader({
-  wasmPath: "./",
-  defaultLoadOptions: {
-    mergeMeshes: true,
-    autoCenter: true,
-  },
-});
-
-// Load IFC file with a single function call
-const result = await loadIfc("/model.ifc", scene);
-
-// Access loaded data
-console.log(`Loaded ${result.meshes.length} meshes`);
-console.log(`Project: ${result.projectInfo.projectName}`);
-console.log(`Build time: ${result.stats.buildTimeMs}ms`);
-
-// Position camera using bounds
-if (result.bounds) {
-  camera.target = result.bounds.center;
-  camera.radius = result.bounds.diagonal * 1.5;
-}
-
-// Get web-ifc API for element queries (e.g., in picking handler)
-const ifcAPI = await getWebIfcAPI();
-const element = ifcAPI.GetLine(result.modelID, expressID, true);
-
-// Cleanup when done
-disposeIfc(scene, result.modelID);
-```
-
-### Two-Step Loading API (Low-Level)
+### Two-Step Loading API
 
 For more control, use the two-step API directly:
 
@@ -164,7 +113,7 @@ const model = await loadIfcModel(ifcAPI, fileObject);
 
 ```typescript
 // Dispose Babylon.js scene (meshes, materials, root node)
-disposeIfcScene(scene);
+disposeIfcModel(scene);
 
 // Close IFC model and free WASM memory
 closeIfcModel(ifcAPI, modelID);
@@ -191,6 +140,7 @@ The project uses [Vitest](https://vitest.dev/) for unit testing with the followi
 | `closeIfcModel.test.ts`    | Tests for model cleanup               |
 | `getProjectInfo.test.ts`   | Tests for project metadata extraction |
 | `buildIfcModel.test.ts`    | Tests for Babylon.js scene building   |
+| `zOffset.test.ts`          | Tests for z-offset material handling  |
 
 ### Running Tests
 
@@ -224,70 +174,13 @@ describe("myFunction", () => {
 });
 ```
 
-## Testing the NPM Package
-
-After running `npm run test:pack`, you can verify the packed package works correctly using the test scripts in `examples/test-usage/`.
-
-### Step 1: Install the Packed Package
-
-```bash
-cd examples/test-usage
-npm install
-```
-
-This installs the packed `babylon-ifc-loader-1.0.0.tgz` file.
-
-### Step 2: Run Import Tests
-
-```bash
-# Test ESM import
-npm run test:esm
-
-# Test CommonJS import
-npm run test:cjs
-
-# Test both
-npm run test:all
-```
-
-These tests verify that:
-
-- `loadIfc` function is exported correctly
-- `configureIfcLoader` function is exported correctly
-- `IfcLoaderPlugin` class is exported correctly
-- `configureIfcLoader` can be called with options
-
-### Step 3: Visual Test (Optional)
-
-```bash
-npm run dev
-```
-
-Then open http://localhost:5174/ in your browser to test the full application with IFC loading.
-
-### Expected Output
-
-```
-=== ESM Import Test ===
-✓ loadIfc function: function
-✓ configureIfcLoader function: function
-✓ IfcLoaderPlugin class: function
-✓ IfcLoaderPlugin.name: IfcLoaderPlugin
-✓ IfcLoaderPlugin.defaultOptions: object
-✓ configureIfcLoader called successfully
-
-=== ESM Test Complete ===
-```
-
 ## Project Structure
 
 ```
 src/
-├── main.ts          — app entry (low-level two-step API)
-├── main-loader.ts   — app entry (high-level loader plugin API)
+├── main.ts          — app entry (two-step API: ifcInit + ifcModel)
 ├── ifcInit.ts       — IFC data layer (web-ifc only)
 ├── ifcModel.ts      — rendering layer (Babylon.js only)
-├── ifcLoader.ts     — Babylon.js SceneLoader plugin (high-level API)
 ├── style.css        — basic styling
 └── __tests__/       — unit tests
 
@@ -297,8 +190,7 @@ public/
 └── bplogo.svg       — asset
 
 Root
-├── index.html       — HTML entry for loader plugin API (default)
-├── index-main.html  — HTML entry for two-step API (/index-main.html)
+├── index.html       — HTML entry
 ├── vite.config.ts   — copies web-ifc.wasm to dist/, sets WASM handling
 ├── tsconfig.json    — TypeScript config
 └── package.json     — scripts and deps
@@ -356,8 +248,8 @@ for (const mesh of meshes) {
 
 | Package                 | Version | Description                         |
 | ----------------------- | ------- | ----------------------------------- |
-| @babylonjs/core         | ^8.51.2 | Core Babylon.js engine              |
-| @babylonjs/inspector    | ^8.51.2 | Built-in debugging inspector        |
+| @babylonjs/core         | ^8.52.0 | Core Babylon.js engine              |
+| @babylonjs/inspector    | ^8.52.0 | Built-in debugging inspector        |
 | web-ifc                 | ^0.0.75 | IFC parsing and geometry extraction |
 | vite                    | ^7.3.1  | Build tool and dev server           |
 | vite-plugin-static-copy | ^3.2.0  | Copy WASM files to dist             |

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { NullEngine, Scene, Vector3, Color3 } from "@babylonjs/core";
-import { buildIfcModel, disposeIfcScene, getModelBounds, centerModelAtOrigin } from "../ifcModel";
+import { buildIfcModel, disposeIfcModel, getModelBounds, centerModelAtOrigin } from "../ifcModel";
 import type { RawIfcModel, RawGeometryPart } from "../ifcInit";
 
 // ============================================================================
@@ -412,10 +412,10 @@ describe("buildIfcModel", () => {
   });
 
   // ==========================================================================
-  // disposeIfcScene Tests
+  // disposeIfcModel Tests
   // ==========================================================================
 
-  describe("disposeIfcScene", () => {
+  describe("disposeIfcModel", () => {
     it("should dispose IFC materials", () => {
       const model = createMockModel();
       buildIfcModel(model, scene, { verbose: false });
@@ -423,7 +423,7 @@ describe("buildIfcModel", () => {
       const materialCount = scene.materials.length;
       expect(materialCount).toBeGreaterThan(0);
 
-      disposeIfcScene(scene);
+      disposeIfcModel(scene);
 
       // IFC materials should be disposed
       const ifcMaterials = scene.materials.filter((m) => m.name.startsWith("ifc-material-"));
@@ -437,7 +437,7 @@ describe("buildIfcModel", () => {
       const rootNode = scene.getTransformNodeByName("ifc-root");
       expect(rootNode).toBeDefined();
 
-      disposeIfcScene(scene);
+      disposeIfcModel(scene);
 
       const rootNodeAfter = scene.getTransformNodeByName("ifc-root");
       expect(rootNodeAfter).toBeNull();
@@ -445,7 +445,7 @@ describe("buildIfcModel", () => {
 
     it("should handle empty scene gracefully", () => {
       // Should not throw
-      expect(() => disposeIfcScene(scene)).not.toThrow();
+      expect(() => disposeIfcModel(scene)).not.toThrow();
     });
 
     it("should log disposal", () => {
@@ -453,7 +453,7 @@ describe("buildIfcModel", () => {
       buildIfcModel(model, scene, { verbose: false });
 
       const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      disposeIfcScene(scene);
+      disposeIfcModel(scene);
 
       expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("ifc-root node"));
 

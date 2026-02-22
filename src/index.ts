@@ -21,6 +21,6 @@ export { initializeWebIFC, loadIfcModel, closeIfcModel, getProjectInfo } from ".
 export type { RawIfcModel, RawGeometryPart, IfcInitOptions, ProjectInfoResult } from "./ifcInit";
 
 // Rendering Layer (Babylon.js only, zero web-ifc dependencies)
-export { buildIfcModel, disposeIfcScene, getModelBounds, centerModelAtOrigin } from "./ifcModel";
+export { buildIfcModel, disposeIfcModel, getModelBounds, centerModelAtOrigin } from "./ifcModel";
 
 export type { SceneBuildOptions, SceneBuildResult, BuildStats, BoundsInfo } from "./ifcModel";

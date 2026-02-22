@@ -149,7 +149,7 @@ vi.mock("../ifcModel", () => ({
       },
     };
   }),
-  disposeIfcScene: vi.fn(),
+  disposeIfcModel: vi.fn(),
   getModelBounds: vi.fn().mockReturnValue({
     min: { x: 0, y: 0, z: 0 },
     max: { x: 1, y: 1, z: 1 },
