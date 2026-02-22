@@ -116,7 +116,8 @@ export function buildIfcModel(model: RawIfcModel, scene: Scene, options: SceneBu
 
     // Get or create material
     const material = getMaterial(colorId, color, scene, materialCache, materialZOffset, opts);
-    materialZOffset += 0.1;
+    // Increment z-offset with modulo to prevent infinite growth
+    materialZOffset = (materialZOffset + 0.05) % 1.0;
 
     if (meshes.length === 1) {
       // Single mesh - no merging needed
