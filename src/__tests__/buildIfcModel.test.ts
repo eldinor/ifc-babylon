@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { NullEngine, Scene, Vector3, Color3 } from "@babylonjs/core";
+import { NullEngine, Scene, Vector3, Color3, StandardMaterial, PBRMaterial } from "@babylonjs/core";
 import { buildIfcModel, disposeIfcModel, getModelBounds, centerModelAtOrigin } from "../ifcModel";
 import type { RawIfcModel, RawGeometryPart } from "../ifcInit";
 
@@ -639,6 +639,162 @@ describe("buildIfcModel", () => {
 
       const material = result.meshes[0].material;
       expect(material!.name).toBe("ifc-material-123");
+    });
+  });
+
+  // ==========================================================================
+  // PBR Material Tests
+  // ==========================================================================
+
+  describe("PBR materials", () => {
+    it("should create StandardMaterial by default (usePBRMaterials=false)", () => {
+      const model = createMockModel();
+
+      const result = buildIfcModel(model, scene, { verbose: false, usePBRMaterials: false });
+
+      const material = result.meshes[0].material;
+      expect(material).toBeInstanceOf(StandardMaterial);
+    });
+
+    it("should create StandardMaterial by default (option not specified)", () => {
+      const model = createMockModel();
+
+      const result = buildIfcModel(model, scene, { verbose: false });
+
+      const material = result.meshes[0].material;
+      expect(material).toBeInstanceOf(StandardMaterial);
+    });
+
+    it("should create PBRMaterial when usePBRMaterials=true", () => {
+      const model = createMockModel();
+
+      const result = buildIfcModel(model, scene, { verbose: false, usePBRMaterials: true });
+
+      const material = result.meshes[0].material;
+      expect(material).toBeInstanceOf(PBRMaterial);
+    });
+
+    it("should set albedoColor on PBR material", () => {
+      const part = createMockPart({
+        color: { x: 0.5, y: 0.6, z: 0.7, w: 1 },
+        colorId: 42,
+      });
+      const model = createMockModel([part]);
+
+      const result = buildIfcModel(model, scene, { verbose: false, usePBRMaterials: true });
+
+      const material = result.meshes[0].material as PBRMaterial;
+      expect(material.albedoColor).toBeInstanceOf(Color3);
+      expect(material.albedoColor.r).toBeCloseTo(0.5, 2);
+      expect(material.albedoColor.g).toBeCloseTo(0.6, 2);
+      expect(material.albedoColor.b).toBeCloseTo(0.7, 2);
+    });
+
+    it("should set alpha on PBR material", () => {
+      const part = createMockPart({
+        color: { x: 1, y: 0, z: 0, w: 0.5 },
+        colorId: 100,
+      });
+      const model = createMockModel([part]);
+
+      const result = buildIfcModel(model, scene, { verbose: false, usePBRMaterials: true });
+
+      const material = result.meshes[0].material as PBRMaterial;
+      expect(material.alpha).toBe(0.5);
+    });
+
+    it("should set metallic=0 and roughness=0.7 on PBR material for building materials", () => {
+      const model = createMockModel();
+
+      const result = buildIfcModel(model, scene, { verbose: false, usePBRMaterials: true });
+
+      const material = result.meshes[0].material as PBRMaterial;
+      expect(material.metallic).toBe(0);
+      expect(material.roughness).toBe(0.7);
+    });
+
+    it("should set backFaceCulling on PBR material based on doubleSided option", () => {
+      const model = createMockModel();
+
+      const result = buildIfcModel(model, scene, { verbose: false, usePBRMaterials: true, doubleSided: true });
+
+      const material = result.meshes[0].material as PBRMaterial;
+      expect(material.backFaceCulling).toBe(false);
+    });
+
+    it("should create default environment when usePBRMaterials=true and no environmentTexture exists", () => {
+      const model = createMockModel();
+
+      // Scene should not have environmentTexture initially
+      expect(scene.environmentTexture).toBeNull();
+
+      buildIfcModel(model, scene, { verbose: false, usePBRMaterials: true });
+
+      // After build, scene should have environmentTexture (created by createDefaultEnvironment)
+      expect(scene.environmentTexture).not.toBeNull();
+    });
+
+    it("should not overwrite existing environmentTexture when usePBRMaterials=true", () => {
+      const model = createMockModel();
+
+      // Create a mock environment texture (using a simple texture as placeholder)
+      scene.createDefaultEnvironment();
+      const originalTexture = scene.environmentTexture;
+      expect(originalTexture).not.toBeNull();
+
+      buildIfcModel(model, scene, { verbose: false, usePBRMaterials: true });
+
+      // The environment texture should remain the same
+      expect(scene.environmentTexture).toBe(originalTexture);
+    });
+
+    it("should log environment creation when verbose=true and usePBRMaterials=true", () => {
+      const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      const model = createMockModel();
+
+      buildIfcModel(model, scene, { verbose: true, usePBRMaterials: true });
+
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("Created default environment for PBR materials"));
+
+      consoleSpy.mockRestore();
+    });
+
+    it("should handle default gray color for PBR material when color is null", () => {
+      const part = createMockPart({ color: null, colorId: 0 });
+      const model = createMockModel([part]);
+
+      const result = buildIfcModel(model, scene, { verbose: false, usePBRMaterials: true });
+
+      const material = result.meshes[0].material as PBRMaterial;
+      expect(material.albedoColor.r).toBeCloseTo(0.8, 1);
+      expect(material.albedoColor.g).toBeCloseTo(0.8, 1);
+      expect(material.albedoColor.b).toBeCloseTo(0.8, 1);
+    });
+
+    it("should reuse PBR materials for same colorId", () => {
+      const parts = [
+        createMockPart({ expressID: 100, colorId: 1 }),
+        createMockPart({ expressID: 101, colorId: 1 }), // Same colorId
+      ];
+      const model = createMockModel(parts);
+
+      const result = buildIfcModel(model, scene, { verbose: false, usePBRMaterials: true });
+
+      expect(result.stats.materialCount).toBe(1);
+      expect(result.meshes[0].material).toBe(result.meshes[1].material);
+    });
+
+    it("should create multiple PBR materials for different colorIds", () => {
+      const parts = [
+        createMockPart({ expressID: 100, colorId: 1, color: { x: 1, y: 0, z: 0, w: 1 } }),
+        createMockPart({ expressID: 101, colorId: 2, color: { x: 0, y: 1, z: 0, w: 1 } }),
+      ];
+      const model = createMockModel(parts);
+
+      const result = buildIfcModel(model, scene, { verbose: false, usePBRMaterials: true });
+
+      expect(result.stats.materialCount).toBe(2);
+      expect(result.meshes[0].material).not.toBe(result.meshes[1].material);
     });
   });
 });

@@ -226,6 +226,7 @@ const loadIfc = async (scene: Scene, source: string | File) => {
     generateNormals: false,
     verbose: true,
     freezeAfterBuild: true,
+    usePBRMaterials: true,
   });
 
   console.log(`\n✓ IFC loaded successfully`);
@@ -252,7 +253,11 @@ const createScene = async (): Promise<Scene> => {
 
   // Create a light
   const light = new HemisphericLight("light", new Vector3(0, 1, 0), scene);
-  light.intensity = 0.7;
+  light.intensity = 0.4;
+  //  light.setEnabled(false);
+
+  if (scene.environmentTexture) {
+  }
 
   // Setup picking handler for IFC elements (if API is available)
   if (ifcAPI) {

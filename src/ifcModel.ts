@@ -8,6 +8,9 @@ import {
   Vector3,
   Color3,
   StandardMaterial,
+  PBRMaterial,
+  MeshBuilder,
+  Texture,
 } from "@babylonjs/core";
 import type { RawIfcModel, RawGeometryPart } from "./ifcInit";
 
@@ -23,6 +26,7 @@ export interface SceneBuildOptions {
   generateNormals?: boolean; // default: false
   verbose?: boolean; // default: true
   freezeAfterBuild?: boolean; // default: true
+  usePBRMaterials?: boolean; // default: false
 }
 
 /** Result of building a scene */
@@ -82,6 +86,27 @@ export function buildIfcModel(model: RawIfcModel, scene: Scene, options: SceneBu
     console.log(`\n🏗️  Building Babylon.js scene from ${model.parts.length} raw parts...`);
   }
 
+  // Setup environment for PBR materials if needed
+  if (opts.usePBRMaterials) {
+    if (!scene.environmentTexture) {
+      scene.createDefaultEnvironment({ createGround: false, createSkybox: false });
+      scene.environmentTexture!.level = 0.4;
+      if (opts.verbose) {
+        console.log(`  Created default environment for PBR materials`);
+      }
+    }
+  }
+  /*
+  const skybox = MeshBuilder.CreateBox("skyBox", { size: 10000 }, scene);
+  const skyboxMaterial = new PBRMaterial("skyBoxMaterial", scene);
+  skyboxMaterial.backFaceCulling = false;
+  skyboxMaterial.reflectionTexture = scene.environmentTexture;
+  skyboxMaterial.reflectionTexture!.coordinatesMode = Texture.SKYBOX_MODE;
+  skyboxMaterial.disableLighting = true;
+  skyboxMaterial.microSurface = 0.3;
+  // skybox.material = skyboxMaterial;
+  */
+
   // Create root transform node (without scaling yet)
   const rootNode = new TransformNode("ifc-root", scene);
 
@@ -102,7 +127,7 @@ export function buildIfcModel(model: RawIfcModel, scene: Scene, options: SceneBu
   }
 
   // Create materials and merge groups
-  const materialCache = new Map<number, StandardMaterial>();
+  const materialCache = new Map<number, StandardMaterial | PBRMaterial>();
   const finalMeshes: AbstractMesh[] = [];
   let mergedCount = 0;
   let skippedCount = 0;
@@ -432,29 +457,59 @@ function getMaterial(
   colorId: number,
   color: { x: number; y: number; z: number; w: number } | null,
   scene: Scene,
-  materialCache: Map<number, StandardMaterial>,
+  materialCache: Map<number, StandardMaterial | PBRMaterial>,
   materialZOffset: number,
   options: SceneBuildOptions,
-): StandardMaterial {
+): StandardMaterial | PBRMaterial {
   if (materialCache.has(colorId)) {
     return materialCache.get(colorId)!;
   }
 
-  const material = new StandardMaterial(`ifc-material-${colorId}`, scene);
+  let material: StandardMaterial | PBRMaterial;
 
-  if (color) {
-    material.diffuseColor = new Color3(color.x, color.y, color.z);
-    material.alpha = color.w;
+  if (options.usePBRMaterials) {
+    // Create PBR material
+    const pbrMaterial = new PBRMaterial(`ifc-material-${colorId}`, scene);
+
+    if (color) {
+      pbrMaterial.albedoColor = new Color3(color.x, color.y, color.z);
+      pbrMaterial.alpha = color.w;
+    } else {
+      // Default gray color
+      pbrMaterial.albedoColor = new Color3(0.8, 0.8, 0.8);
+    }
+
+    // Set PBR-specific properties for non-metallic surfaces (typical for building materials)
+    pbrMaterial.metallic = 0;
+    pbrMaterial.roughness = 0.7;
+
+    // Add z-offset to prevent z-fighting
+    pbrMaterial.zOffset = materialZOffset;
+
+    // Set backface culling based on options
+    pbrMaterial.backFaceCulling = !options.doubleSided;
+
+    material = pbrMaterial;
   } else {
-    // Default gray color
-    material.diffuseColor = new Color3(0.8, 0.8, 0.8);
+    // Create Standard material (default)
+    const standardMaterial = new StandardMaterial(`ifc-material-${colorId}`, scene);
+
+    if (color) {
+      standardMaterial.diffuseColor = new Color3(color.x, color.y, color.z);
+      standardMaterial.alpha = color.w;
+    } else {
+      // Default gray color
+      standardMaterial.diffuseColor = new Color3(0.8, 0.8, 0.8);
+    }
+
+    // Add z-offset to prevent z-fighting
+    standardMaterial.zOffset = materialZOffset;
+
+    // Set backface culling based on options
+    standardMaterial.backFaceCulling = !options.doubleSided;
+
+    material = standardMaterial;
   }
-
-  // Add z-offset to prevent z-fighting
-  material.zOffset = materialZOffset;
-
-  // Set backface culling based on options
-  material.backFaceCulling = !options.doubleSided;
 
   materialCache.set(colorId, material);
   return material;
