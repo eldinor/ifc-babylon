@@ -21,7 +21,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "build:npm": "tsc --project tsconfig.build.json",
+    "build:npm": "tsc --project tsconfig.build.json && npm run copy:wasm",
+    "copy:wasm": "node -e \"require('fs').cpSync('node_modules/web-ifc/web-ifc.wasm', 'dist-npm/web-ifc.wasm')\"",
     "build:all": "npm run build && npm run build:npm",
     "preview": "vite preview",
     "test": "vitest",

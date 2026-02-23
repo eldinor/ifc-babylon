@@ -123,6 +123,44 @@ closeIfcModel(ifcAPI, modelID);
 
 See [API.md](./API.md) for complete API documentation with all types, parameters, and examples.
 
+## NPM Package
+
+The package is published as `babylon-ifc-loader` and exports:
+
+```typescript
+// Low-level IFC Data Layer (web-ifc only)
+import { initializeWebIFC, loadIfcModel, closeIfcModel, getProjectInfo } from "babylon-ifc-loader";
+
+// Rendering Layer (Babylon.js only)
+import { buildIfcModel, disposeIfcModel, getModelBounds, centerModelAtOrigin } from "babylon-ifc-loader";
+```
+
+### Testing NPM Package Locally
+
+To test the npm package locally before publishing:
+
+```bash
+# 1. Build the npm package
+npm run build:npm
+
+# 2. Run Vite dev server with the test-npm entry point
+npx vite . --open test-npm/index.html
+```
+
+The `test-npm/` folder contains a test page that imports from `babylon-ifc-loader`. Since the package's `main` entry points to `dist-npm/index.js`, Vite resolves the import from the built output.
+
+**Testing from another project:**
+
+To test the package in a different project:
+
+```bash
+# In ifc-babylon root
+npm link
+
+# In the other project
+npm link babylon-ifc-loader
+```
+
 ## Testing
 
 The project uses [Vitest](https://vitest.dev/) for unit testing with the following setup:
