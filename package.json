@@ -3,9 +3,26 @@
   "version": "1.0.0",
   "description": "Babylon.js SceneLoader plugin for IFC files using web-ifc",
   "type": "module",
+  "main": "dist-npm/index.js",
+  "module": "dist-npm/index.js",
+  "types": "dist-npm/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist-npm/index.js",
+      "types": "./dist-npm/index.d.ts"
+    }
+  },
+  "files": [
+    "dist-npm",
+    "LICENSE",
+    "readme.md",
+    "API.md"
+  ],
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:npm": "tsc --project tsconfig.build.json",
+    "build:all": "npm run build && npm run build:npm",
     "preview": "vite preview",
     "test": "vitest",
     "test:coverage": "vitest --coverage"
