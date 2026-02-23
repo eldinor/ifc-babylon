@@ -55,10 +55,10 @@
   "homepage": "https://github.com/eldinor/ifc-babylon#readme",
   "dependencies": {
     "@babylonjs/core": "^8.52.0",
-    "@babylonjs/inspector": "^8.52.0",
     "web-ifc": "^0.0.75"
   },
   "devDependencies": {
+    "@babylonjs/inspector": "^8.52.0",
     "@types/node": "^25.3.0",
     "@vitest/coverage-v8": "^4.0.18",
     "jsdom": "^28.1.0",
