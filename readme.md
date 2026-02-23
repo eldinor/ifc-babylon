@@ -4,6 +4,12 @@ IFC Loader built with Babylon.js and web-ifc. Features automatic loading of samp
 
 While providing the minimal viewer experience, this repo is dedicated to developing and testing the IFC Babylon.js Loader. The viewer is provided for testing and demonstration purposes only. Full-featured Babylon.js IFC Babylon.js Viewer will be available in a separate repo later.
 
+## Installation
+
+```bash
+npm install babylon-ifc-loader
+```
+
 ## Quick Start
 
 ```bash
