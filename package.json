@@ -1,6 +1,6 @@
 {
   "name": "babylon-ifc-loader",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Babylon.js SceneLoader plugin for IFC files using web-ifc",
   "type": "module",
   "main": "dist-npm/index.js",
