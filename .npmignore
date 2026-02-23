@@ -1,6 +1,8 @@
 # Source files
 src/
-!dist/
+
+# App build (Vite)
+dist/
 
 # Test files
 src/__tests__/

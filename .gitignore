@@ -24,4 +24,4 @@ dist-ssr
 *.sw?
 #
 coverage
-dist-app
+dist-npm
