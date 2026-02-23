@@ -253,10 +253,14 @@ const createScene = async (): Promise<Scene> => {
 
   // Create a light
   const light = new HemisphericLight("light", new Vector3(0, 1, 0), scene);
-  light.intensity = 0.4;
-  //  light.setEnabled(false);
+  light.intensity = 0.01;
+  light.setEnabled(false);
 
-  if (scene.environmentTexture) {
+  // Setup environment for PBR materials if needed
+
+  if (!scene.environmentTexture) {
+    scene.createDefaultEnvironment({ createGround: false, createSkybox: false });
+    scene.environmentTexture!.level = 0.4;
   }
 
   // Setup picking handler for IFC elements (if API is available)

@@ -86,16 +86,6 @@ export function buildIfcModel(model: RawIfcModel, scene: Scene, options: SceneBu
     console.log(`\n🏗️  Building Babylon.js scene from ${model.parts.length} raw parts...`);
   }
 
-  // Setup environment for PBR materials if needed
-  if (opts.usePBRMaterials) {
-    if (!scene.environmentTexture) {
-      scene.createDefaultEnvironment({ createGround: false, createSkybox: false });
-      scene.environmentTexture!.level = 0.4;
-      if (opts.verbose) {
-        console.log(`  Created default environment for PBR materials`);
-      }
-    }
-  }
   /*
   const skybox = MeshBuilder.CreateBox("skyBox", { size: 10000 }, scene);
   const skyboxMaterial = new PBRMaterial("skyBoxMaterial", scene);
