@@ -260,7 +260,7 @@ const createScene = async (): Promise<Scene> => {
 
   if (!scene.environmentTexture) {
     scene.createDefaultEnvironment({ createGround: false, createSkybox: false });
-    scene.environmentTexture!.level = 0.4;
+    scene.environmentTexture!.level = 0.7;
   }
 
   // Setup picking handler for IFC elements (if API is available)
