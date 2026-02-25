@@ -249,7 +249,7 @@ Root
 ## Materials, Merging, and Performance
 
 - Materials are `StandardMaterial` per unique RGBA color, configurable `backFaceCulling`, incremental `zOffset` to mitigate z-fighting
-- Meshes are merged per (expressID + color) when safe; safety check prevents merging across different storeys using spatial relations
+- Meshes are merged per (expressID + color)
 - Metadata (`expressID`, `modelID`) preserved on merged meshes
 - Stats for counts, triangles, materials, and build time are computed
 

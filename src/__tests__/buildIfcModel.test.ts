@@ -1,6 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { NullEngine, Scene, Vector3, Color3, StandardMaterial, PBRMaterial } from "@babylonjs/core";
-import { buildIfcModel, disposeIfcModel, getModelBounds, centerModelAtOrigin } from "../ifcModel";
+import {
+  buildIfcModel,
+  disposeIfcModel,
+  getModelBounds,
+  centerModelAtOrigin,
+  DEFAULT_IFC_MATERIAL_GRAY,
+  DEFAULT_PBR_ROUGHNESS,
+} from "../ifcModel";
 import type { RawIfcModel, RawGeometryPart } from "../ifcInit";
 
 // ============================================================================
@@ -31,7 +38,6 @@ function createMockModel(parts: RawGeometryPart[] = [createMockPart()]): RawIfcM
   return {
     modelID: 1,
     parts,
-    storeyMap: new Map(),
     rawStats: {
       partCount: parts.length,
       vertexCount: parts.reduce((sum, p) => sum + p.positions.length / 3, 0),
@@ -213,10 +219,10 @@ describe("buildIfcModel", () => {
 
       buildIfcModel(model, scene, { doubleSided: true, verbose: false });
 
-      const material = scene.materials[0];
+      const material = scene.materials[0] as StandardMaterial;
       expect(material).toBeDefined();
       // doubleSided=true means backFaceCulling=false
-      expect((material as any).backFaceCulling).toBe(false);
+      expect(material.backFaceCulling).toBe(false);
     });
 
     it("should set backFaceCulling=true when doubleSided=false", () => {
@@ -224,8 +230,8 @@ describe("buildIfcModel", () => {
 
       buildIfcModel(model, scene, { doubleSided: false, verbose: false });
 
-      const material = scene.materials[0];
-      expect((material as any).backFaceCulling).toBe(true);
+      const material = scene.materials[0] as StandardMaterial;
+      expect(material.backFaceCulling).toBe(true);
     });
 
     it("should respect verbose option for logging", () => {
@@ -270,6 +276,23 @@ describe("buildIfcModel", () => {
       result.meshes.forEach((mesh) => {
         expect(mesh.isWorldMatrixFrozen).toBe(false);
       });
+    });
+
+    it("should release raw parts when releaseRawPartsAfterBuild=true", () => {
+      const model = createMockModel([createMockPart(), createMockPart({ expressID: 101 })]);
+
+      const result = buildIfcModel(model, scene, { releaseRawPartsAfterBuild: true, verbose: false });
+
+      expect(result.meshes.length).toBeGreaterThan(0);
+      expect(model.parts).toHaveLength(0);
+    });
+
+    it("should keep raw parts when releaseRawPartsAfterBuild=false", () => {
+      const model = createMockModel([createMockPart(), createMockPart({ expressID: 101 })]);
+
+      buildIfcModel(model, scene, { verbose: false, releaseRawPartsAfterBuild: false });
+
+      expect(model.parts).toHaveLength(2);
     });
   });
 
@@ -492,44 +515,6 @@ describe("buildIfcModel", () => {
   });
 
   // ==========================================================================
-  // Storey Map Tests
-  // ==========================================================================
-
-  describe("storey map handling", () => {
-    it("should handle empty storey map", () => {
-      const model = createMockModel();
-      model.storeyMap = new Map();
-
-      const result = buildIfcModel(model, scene, { verbose: false });
-
-      expect(result).toBeDefined();
-    });
-
-    it("should prevent merging meshes from different storeys", () => {
-      const parts = [createMockPart({ expressID: 100, colorId: 1 }), createMockPart({ expressID: 100, colorId: 1 })];
-      const model = createMockModel(parts);
-
-      // Set different storeys for the same expressID
-      model.storeyMap = new Map([
-        [100, 1], // expressID 100 -> storey 1
-        [100, 2], // This won't work as expected, need different expressIDs
-      ]);
-
-      // Actually test with different elements in different storeys
-      const partsWithDifferentStoreys = [
-        createMockPart({ expressID: 100, colorId: 1 }),
-        createMockPart({ expressID: 100, colorId: 1 }),
-      ];
-      const modelWithStoreys = createMockModel(partsWithDifferentStoreys);
-      modelWithStoreys.storeyMap = new Map();
-
-      const result = buildIfcModel(modelWithStoreys, scene, { verbose: false, mergeMeshes: true });
-
-      expect(result).toBeDefined();
-    });
-  });
-
-  // ==========================================================================
   // Edge Cases
   // ==========================================================================
 
@@ -549,6 +534,17 @@ describe("buildIfcModel", () => {
       const result = buildIfcModel(model, scene, { verbose: false });
 
       expect(result.meshes.length).toBe(1);
+    });
+
+    it("should skip invalid parts with out-of-range indices", () => {
+      const invalidPart = createMockPart({
+        indices: new Uint32Array([0, 1, 99]),
+      });
+      const model = createMockModel([invalidPart]);
+
+      const result = buildIfcModel(model, scene, { verbose: false });
+
+      expect(result.meshes.length).toBe(0);
     });
 
     it("should handle parts with zero normals (generateNormals option)", () => {
@@ -582,8 +578,9 @@ describe("buildIfcModel", () => {
 
       const result = buildIfcModel(model, scene, { verbose: false });
 
-      expect(result.meshes[0].material).toBeDefined();
-      expect((result.meshes[0].material as any).alpha).toBe(0.5);
+      const material = result.meshes[0].material as StandardMaterial;
+      expect(material).toBeDefined();
+      expect(material.alpha).toBe(0.5);
     });
 
     it("should handle multiple parts with same expressID but different colors", () => {
@@ -615,11 +612,12 @@ describe("buildIfcModel", () => {
       const result = buildIfcModel(model, scene, { verbose: false });
 
       const material = result.meshes[0].material;
-      expect(material).toBeDefined();
-      expect((material as any).diffuseColor).toBeInstanceOf(Color3);
-      expect((material as any).diffuseColor.r).toBeCloseTo(0.5, 2);
-      expect((material as any).diffuseColor.g).toBeCloseTo(0.6, 2);
-      expect((material as any).diffuseColor.b).toBeCloseTo(0.7, 2);
+      const standardMaterial = material as StandardMaterial;
+      expect(standardMaterial).toBeDefined();
+      expect(standardMaterial.diffuseColor).toBeInstanceOf(Color3);
+      expect(standardMaterial.diffuseColor.r).toBeCloseTo(0.5, 2);
+      expect(standardMaterial.diffuseColor.g).toBeCloseTo(0.6, 2);
+      expect(standardMaterial.diffuseColor.b).toBeCloseTo(0.7, 2);
     });
 
     it("should set z-offset on materials to prevent z-fighting", () => {
@@ -627,8 +625,8 @@ describe("buildIfcModel", () => {
 
       const result = buildIfcModel(model, scene, { verbose: false });
 
-      const material = result.meshes[0].material;
-      expect((material as any).zOffset).toBeDefined();
+      const material = result.meshes[0].material as StandardMaterial;
+      expect(material.zOffset).toBeDefined();
     });
 
     it("should name materials with pattern 'ifc-material-{colorId}'", () => {
@@ -710,7 +708,7 @@ describe("buildIfcModel", () => {
 
       const material = result.meshes[0].material as PBRMaterial;
       expect(material.metallic).toBe(0);
-      expect(material.roughness).toBe(0.7);
+      expect(material.roughness).toBe(DEFAULT_PBR_ROUGHNESS);
     });
 
     it("should set backFaceCulling on PBR material based on doubleSided option", () => {
@@ -720,18 +718,6 @@ describe("buildIfcModel", () => {
 
       const material = result.meshes[0].material as PBRMaterial;
       expect(material.backFaceCulling).toBe(false);
-    });
-
-    it("should create default environment when usePBRMaterials=true and no environmentTexture exists", () => {
-      const model = createMockModel();
-
-      // Scene should not have environmentTexture initially
-      expect(scene.environmentTexture).toBeNull();
-
-      buildIfcModel(model, scene, { verbose: false, usePBRMaterials: true });
-
-      // After build, scene should have environmentTexture (created by createDefaultEnvironment)
-      expect(scene.environmentTexture).not.toBeNull();
     });
 
     it("should not overwrite existing environmentTexture when usePBRMaterials=true", () => {
@@ -748,17 +734,6 @@ describe("buildIfcModel", () => {
       expect(scene.environmentTexture).toBe(originalTexture);
     });
 
-    it("should log environment creation when verbose=true and usePBRMaterials=true", () => {
-      const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const model = createMockModel();
-
-      buildIfcModel(model, scene, { verbose: true, usePBRMaterials: true });
-
-      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("Created default environment for PBR materials"));
-
-      consoleSpy.mockRestore();
-    });
-
     it("should handle default gray color for PBR material when color is null", () => {
       const part = createMockPart({ color: null, colorId: 0 });
       const model = createMockModel([part]);
@@ -766,9 +741,9 @@ describe("buildIfcModel", () => {
       const result = buildIfcModel(model, scene, { verbose: false, usePBRMaterials: true });
 
       const material = result.meshes[0].material as PBRMaterial;
-      expect(material.albedoColor.r).toBeCloseTo(0.8, 1);
-      expect(material.albedoColor.g).toBeCloseTo(0.8, 1);
-      expect(material.albedoColor.b).toBeCloseTo(0.8, 1);
+      expect(material.albedoColor.r).toBeCloseTo(DEFAULT_IFC_MATERIAL_GRAY, 1);
+      expect(material.albedoColor.g).toBeCloseTo(DEFAULT_IFC_MATERIAL_GRAY, 1);
+      expect(material.albedoColor.b).toBeCloseTo(DEFAULT_IFC_MATERIAL_GRAY, 1);
     });
 
     it("should reuse PBR materials for same colorId", () => {

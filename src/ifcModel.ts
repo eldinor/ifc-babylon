@@ -27,7 +27,14 @@ export interface SceneBuildOptions {
   verbose?: boolean; // default: true
   freezeAfterBuild?: boolean; // default: true
   usePBRMaterials?: boolean; // default: false
+  releaseRawPartsAfterBuild?: boolean; // default: true
 }
+
+export const MATERIAL_Z_OFFSET_STEP = 0.05;
+export const MATERIAL_Z_OFFSET_WRAP = 1.0;
+export const DEFAULT_IFC_MATERIAL_GRAY = 0.8;
+export const DEFAULT_PBR_METALLIC = 0;
+export const DEFAULT_PBR_ROUGHNESS = 0.7;
 
 /** Result of building a scene */
 export interface SceneBuildResult {
@@ -79,11 +86,12 @@ export function buildIfcModel(model: RawIfcModel, scene: Scene, options: SceneBu
     generateNormals: false,
     verbose: true,
     freezeAfterBuild: true,
+    releaseRawPartsAfterBuild: true,
     ...options,
   };
 
   if (opts.verbose) {
-    console.log(`\n🏗️  Building Babylon.js scene from ${model.parts.length} raw parts...`);
+    console.log(`\nBuilding Babylon.js scene from ${model.parts.length} raw parts...`);
   }
 
   /*
@@ -100,13 +108,30 @@ export function buildIfcModel(model: RawIfcModel, scene: Scene, options: SceneBu
   // Create root transform node (without scaling yet)
   const rootNode = new TransformNode("ifc-root", scene);
 
-  // Create meshes from raw parts
-  const meshesWithColor: MeshWithColor[] = model.parts.map((part) => {
+  // Validate and create meshes from raw parts
+  let invalidPartCount = 0;
+  const validParts = model.parts.filter((part) => {
+    const error = validateRawPart(part);
+    if (error) {
+      invalidPartCount++;
+      if (opts.verbose) {
+        console.warn(
+          `Skipping invalid part expressID=${part.expressID} geometryExpressID=${part.geometryExpressID}: ${error}`,
+        );
+      }
+      return false;
+    }
+    return true;
+  });
+  const meshesWithColor: MeshWithColor[] = validParts.map((part) => {
     return createMeshFromPart(part, model.modelID, scene, rootNode, opts);
   });
 
   if (opts.verbose) {
     console.log(`  Created ${meshesWithColor.length} initial meshes`);
+    if (invalidPartCount > 0) {
+      console.log(`  Skipped ${invalidPartCount} invalid geometry part(s)`);
+    }
   }
 
   // Group by (expressID + colorId)
@@ -132,7 +157,7 @@ export function buildIfcModel(model: RawIfcModel, scene: Scene, options: SceneBu
     // Get or create material
     const material = getMaterial(colorId, color, scene, materialCache, materialZOffset, opts);
     // Increment z-offset with modulo to prevent infinite growth
-    materialZOffset = (materialZOffset + 0.05) % 1.0;
+    materialZOffset = (materialZOffset + MATERIAL_Z_OFFSET_STEP) % MATERIAL_Z_OFFSET_WRAP;
 
     if (meshes.length === 1) {
       // Single mesh - no merging needed
@@ -141,51 +166,35 @@ export function buildIfcModel(model: RawIfcModel, scene: Scene, options: SceneBu
       mesh.material = material;
       finalMeshes.push(mesh);
     } else if (opts.mergeMeshes) {
-      // Multiple meshes - check if we can merge
-      const canMerge = canMergeMeshes(meshes, model.storeyMap);
+      // Multiple meshes - merge parts belonging to the same element/material group.
+      const mergedMesh = Mesh.MergeMeshes(
+        meshes,
+        true, // disposeSource
+        true, // allow32BitsIndices
+        undefined, // meshSubclass
+        false, // subdivideWithSubMeshes
+        false, // multiMultiMaterials
+      );
 
-      if (canMerge) {
-        // Safe to merge
-        const mergedMesh = Mesh.MergeMeshes(
-          meshes,
-          true, // disposeSource
-          true, // allow32BitsIndices
-          undefined, // meshSubclass
-          false, // subdivideWithSubMeshes
-          false, // multiMultiMaterials
-        );
-
-        if (mergedMesh) {
-          mergedMesh.name = `ifc-${expressID}`;
-          mergedMesh.parent = rootNode;
-          mergedMesh.material = material;
-          mergedMesh.metadata = {
-            expressID: expressID,
-            modelID: model.modelID,
-          };
-          mergedMesh.isVisible = true;
-          finalMeshes.push(mergedMesh);
-          mergedCount++;
-        } else {
-          // Merge failed - keep original meshes
-          meshes.forEach((mesh) => {
-            mesh.name = `ifc-${expressID}`;
-            mesh.material = material;
-            finalMeshes.push(mesh);
-          });
-          skippedCount++;
-        }
+      if (mergedMesh) {
+        mergedMesh.name = `ifc-${expressID}`;
+        mergedMesh.parent = rootNode;
+        mergedMesh.material = material;
+        mergedMesh.metadata = {
+          expressID: expressID,
+          modelID: model.modelID,
+        };
+        mergedMesh.isVisible = true;
+        finalMeshes.push(mergedMesh);
+        mergedCount++;
       } else {
-        // Cannot merge - different storeys
+        // Merge failed - keep original meshes
         meshes.forEach((mesh) => {
           mesh.name = `ifc-${expressID}`;
           mesh.material = material;
           finalMeshes.push(mesh);
         });
         skippedCount++;
-        if (opts.verbose) {
-          console.log(`  ⚠ Skipped merging ${meshes.length} parts for expressID ${expressID} (different storeys)`);
-        }
       }
     } else {
       // Merging disabled - keep all meshes
@@ -212,7 +221,7 @@ export function buildIfcModel(model: RawIfcModel, scene: Scene, options: SceneBu
       rootNode.position.subtractInPlace(centerOffset);
       if (opts.verbose) {
         console.log(
-          `  📍 Model auto-centered at origin (offset: ${centerOffset.x.toFixed(2)}, ${centerOffset.y.toFixed(2)}, ${centerOffset.z.toFixed(2)})`,
+          `  Model auto-centered at origin (offset: ${centerOffset.x.toFixed(2)}, ${centerOffset.y.toFixed(2)}, ${centerOffset.z.toFixed(2)})`,
         );
       }
     }
@@ -230,7 +239,7 @@ export function buildIfcModel(model: RawIfcModel, scene: Scene, options: SceneBu
   };
 
   if (opts.verbose) {
-    console.log(`\n✅ Model building complete:`);
+    console.log(`\nModel building complete:`);
     console.log(`  Original parts: ${stats.originalPartCount}`);
     console.log(`  Merged groups: ${stats.mergedGroupCount}`);
     console.log(`  Skipped groups: ${stats.skippedGroupCount}`);
@@ -241,12 +250,9 @@ export function buildIfcModel(model: RawIfcModel, scene: Scene, options: SceneBu
 
   if (opts.freezeAfterBuild) {
     // Freeze only IFC meshes that are children of ifc-root
-    const rootNode = scene.getTransformNodeByName("ifc-root");
-    if (rootNode) {
-      rootNode.getChildMeshes().forEach((mesh) => {
-        mesh.freezeWorldMatrix();
-      });
-    }
+    rootNode.getChildMeshes().forEach((mesh) => {
+      mesh.freezeWorldMatrix();
+    });
     // Freeze IFC materials only
     scene.materials.forEach((material) => {
       if (material.name.startsWith("ifc-material-")) {
@@ -256,6 +262,10 @@ export function buildIfcModel(model: RawIfcModel, scene: Scene, options: SceneBu
     if (opts.verbose) {
       console.log(`  IFC meshes and materials frozen for optimal performance`);
     }
+  }
+
+  if (opts.releaseRawPartsAfterBuild) {
+    model.parts = [];
   }
 
   return {
@@ -282,11 +292,11 @@ export function disposeIfcModel(scene: Scene): void {
   const rootNode = scene.getTransformNodeByName("ifc-root");
   if (rootNode) {
     rootNode.dispose();
-    console.log(`✓ ifc-root node and all child meshes disposed`);
+    console.log(`ifc-root node and all child meshes disposed`);
   }
 
   if (materialCount > 0) {
-    console.log(`✓ ${materialCount} IFC materials disposed`);
+    console.log(`${materialCount} IFC materials disposed`);
   }
 }
 
@@ -360,7 +370,7 @@ export function centerModelAtOrigin(meshes: AbstractMesh[], rootNode?: Transform
   }
 
   console.log(
-    `📍 Model centered at origin, offset: (${offset.x.toFixed(2)}, ${offset.y.toFixed(2)}, ${offset.z.toFixed(2)})`,
+    `Model centered at origin, offset: (${offset.x.toFixed(2)}, ${offset.y.toFixed(2)}, ${offset.z.toFixed(2)})`,
   );
 
   return offset;
@@ -392,17 +402,19 @@ function createMeshFromPart(
 
   // Check if normals need to be generated
   let normals = part.normals;
-  if (options.generateNormals && normals.every((v) => v === 0)) {
+  const hasInvalidNormalLength = normals.length !== part.positions.length;
+  const shouldGenerateNormals = (options.generateNormals && normals.every((v) => v === 0)) || hasInvalidNormalLength;
+  if (shouldGenerateNormals) {
     const tempNormals: number[] = [];
-    VertexData.ComputeNormals(Array.from(part.positions), Array.from(part.indices), tempNormals);
+    VertexData.ComputeNormals(part.positions, part.indices, tempNormals);
     normals = new Float32Array(tempNormals);
   }
 
   // Apply vertex data
   const vertexData = new VertexData();
-  vertexData.positions = Array.from(part.positions);
-  vertexData.normals = Array.from(normals);
-  vertexData.indices = Array.from(part.indices);
+  vertexData.positions = part.positions;
+  vertexData.normals = normals;
+  vertexData.indices = part.indices;
   vertexData.applyToMesh(mesh);
 
   // Apply transformation
@@ -418,6 +430,33 @@ function createMeshFromPart(
     colorId: part.colorId,
     color: part.color,
   };
+}
+
+function validateRawPart(part: RawGeometryPart): string | null {
+  const vertexCount = part.positions.length / 3;
+
+  if (part.positions.length === 0 || part.positions.length % 3 !== 0) {
+    return "positions must be a non-empty Float32Array with length divisible by 3";
+  }
+  if (part.indices.length === 0 || part.indices.length % 3 !== 0) {
+    return "indices must be a non-empty Uint32Array with length divisible by 3";
+  }
+  for (let i = 0; i < part.positions.length; i++) {
+    if (!Number.isFinite(part.positions[i])) {
+      return `positions contains non-finite value at index ${i}`;
+    }
+  }
+  for (let i = 0; i < part.normals.length; i++) {
+    if (!Number.isFinite(part.normals[i])) {
+      return `normals contains non-finite value at index ${i}`;
+    }
+  }
+  for (let i = 0; i < part.indices.length; i++) {
+    if (part.indices[i] >= vertexCount) {
+      return `indices contains out-of-range vertex index ${part.indices[i]} (vertexCount=${vertexCount})`;
+    }
+  }
+  return null;
 }
 
 /**
@@ -466,12 +505,16 @@ function getMaterial(
       pbrMaterial.alpha = color.w;
     } else {
       // Default gray color
-      pbrMaterial.albedoColor = new Color3(0.8, 0.8, 0.8);
+      pbrMaterial.albedoColor = new Color3(
+        DEFAULT_IFC_MATERIAL_GRAY,
+        DEFAULT_IFC_MATERIAL_GRAY,
+        DEFAULT_IFC_MATERIAL_GRAY,
+      );
     }
 
     // Set PBR-specific properties for non-metallic surfaces (typical for building materials)
-    pbrMaterial.metallic = 0;
-    pbrMaterial.roughness = 0.7;
+    pbrMaterial.metallic = DEFAULT_PBR_METALLIC;
+    pbrMaterial.roughness = DEFAULT_PBR_ROUGHNESS;
 
     // Add z-offset to prevent z-fighting
     pbrMaterial.zOffset = materialZOffset;
@@ -489,7 +532,11 @@ function getMaterial(
       standardMaterial.alpha = color.w;
     } else {
       // Default gray color
-      standardMaterial.diffuseColor = new Color3(0.8, 0.8, 0.8);
+      standardMaterial.diffuseColor = new Color3(
+        DEFAULT_IFC_MATERIAL_GRAY,
+        DEFAULT_IFC_MATERIAL_GRAY,
+        DEFAULT_IFC_MATERIAL_GRAY,
+      );
     }
 
     // Add z-offset to prevent z-fighting
@@ -505,22 +552,3 @@ function getMaterial(
   return material;
 }
 
-/**
- * Check if meshes can be safely merged based on spatial context
- */
-function canMergeMeshes(meshes: Mesh[], storeyMap: Map<number, number>): boolean {
-  const storeyIDs = new Set<number>();
-
-  meshes.forEach((mesh) => {
-    const expressID = mesh.metadata?.expressID;
-    if (expressID !== undefined) {
-      const storeyID = storeyMap.get(expressID);
-      if (storeyID) {
-        storeyIDs.add(storeyID);
-      }
-    }
-  });
-
-  // Allow merge ONLY if all parts belong to same storey OR no storey assignment
-  return storeyIDs.size <= 1;
-}

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import * as WebIFC from "web-ifc";
 import { initializeWebIFC } from "../ifcInit";
+import type { Mock } from "vitest";
 
 // Mock WebIFC with a proper class constructor
 vi.mock("web-ifc", () => {
@@ -21,6 +22,8 @@ vi.mock("web-ifc", () => {
 });
 
 describe("initializeWebIFC", () => {
+  const asMock = (fn: unknown): Mock => fn as Mock;
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -78,8 +81,8 @@ describe("initializeWebIFC", () => {
     const result = await initializeWebIFC();
 
     // Check the order of calls
-    const initOrder = (result.Init as any).mock.invocationCallOrder[0];
-    const logLevelOrder = (result.SetLogLevel as any).mock.invocationCallOrder[0];
+    const initOrder = asMock(result.Init).mock.invocationCallOrder[0];
+    const logLevelOrder = asMock(result.SetLogLevel).mock.invocationCallOrder[0];
 
     expect(initOrder).toBeLessThan(logLevelOrder);
   });
@@ -87,8 +90,8 @@ describe("initializeWebIFC", () => {
   it("should call SetWasmPath before Init when path is provided", async () => {
     const result = await initializeWebIFC("custom/path/");
 
-    const wasmPathOrder = (result.SetWasmPath as any).mock.invocationCallOrder[0];
-    const initOrder = (result.Init as any).mock.invocationCallOrder[0];
+    const wasmPathOrder = asMock(result.SetWasmPath).mock.invocationCallOrder[0];
+    const initOrder = asMock(result.Init).mock.invocationCallOrder[0];
 
     expect(wasmPathOrder).toBeLessThan(initOrder);
   });

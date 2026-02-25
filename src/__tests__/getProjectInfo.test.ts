@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import type { Mock } from "vitest";
 import * as WebIFC from "web-ifc";
 import { getProjectInfo } from "../ifcInit";
 
@@ -28,6 +29,7 @@ vi.mock("web-ifc", () => {
 
 describe("getProjectInfo", () => {
   let mockIfcAPI: WebIFC.IfcAPI;
+  const asMock = (fn: unknown): Mock => fn as Mock;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -35,7 +37,7 @@ describe("getProjectInfo", () => {
   });
 
   it("should return null values when no data is found", () => {
-    (mockIfcAPI.GetLineIDsWithType as any).mockReturnValue({
+    asMock(mockIfcAPI.GetLineIDsWithType).mockReturnValue({
       size: () => 0,
     });
 
@@ -51,14 +53,14 @@ describe("getProjectInfo", () => {
   });
 
   it("should extract project name from Name property", () => {
-    (mockIfcAPI.GetLineIDsWithType as any).mockImplementation((_modelID: number, type: number) => {
+    asMock(mockIfcAPI.GetLineIDsWithType).mockImplementation((_modelID: number, type: number) => {
       if (type === WebIFC.IFCPROJECT) {
         return { size: () => 1, get: () => 100 };
       }
       return { size: () => 0 };
     });
 
-    (mockIfcAPI.GetLine as any).mockImplementation((_modelID: number, id: number) => {
+    asMock(mockIfcAPI.GetLine).mockImplementation((_modelID: number, id: number) => {
       if (id === 100) {
         return { Name: { value: "Test Project" } };
       }
@@ -71,14 +73,14 @@ describe("getProjectInfo", () => {
   });
 
   it("should extract project name from LongName when Name is not available", () => {
-    (mockIfcAPI.GetLineIDsWithType as any).mockImplementation((_modelID: number, type: number) => {
+    asMock(mockIfcAPI.GetLineIDsWithType).mockImplementation((_modelID: number, type: number) => {
       if (type === WebIFC.IFCPROJECT) {
         return { size: () => 1, get: () => 100 };
       }
       return { size: () => 0 };
     });
 
-    (mockIfcAPI.GetLine as any).mockImplementation((_modelID: number, id: number) => {
+    asMock(mockIfcAPI.GetLine).mockImplementation((_modelID: number, id: number) => {
       if (id === 100) {
         return { LongName: { value: "Long Project Name" } };
       }
@@ -91,14 +93,14 @@ describe("getProjectInfo", () => {
   });
 
   it("should prefer Name over LongName when both are available", () => {
-    (mockIfcAPI.GetLineIDsWithType as any).mockImplementation((_modelID: number, type: number) => {
+    asMock(mockIfcAPI.GetLineIDsWithType).mockImplementation((_modelID: number, type: number) => {
       if (type === WebIFC.IFCPROJECT) {
         return { size: () => 1, get: () => 100 };
       }
       return { size: () => 0 };
     });
 
-    (mockIfcAPI.GetLine as any).mockImplementation((_modelID: number, id: number) => {
+    asMock(mockIfcAPI.GetLine).mockImplementation((_modelID: number, id: number) => {
       if (id === 100) {
         return { Name: { value: "Short Name" }, LongName: { value: "Long Name" } };
       }
@@ -111,14 +113,14 @@ describe("getProjectInfo", () => {
   });
 
   it("should extract project description", () => {
-    (mockIfcAPI.GetLineIDsWithType as any).mockImplementation((_modelID: number, type: number) => {
+    asMock(mockIfcAPI.GetLineIDsWithType).mockImplementation((_modelID: number, type: number) => {
       if (type === WebIFC.IFCPROJECT) {
         return { size: () => 1, get: () => 100 };
       }
       return { size: () => 0 };
     });
 
-    (mockIfcAPI.GetLine as any).mockImplementation((_modelID: number, id: number) => {
+    asMock(mockIfcAPI.GetLine).mockImplementation((_modelID: number, id: number) => {
       if (id === 100) {
         return { Description: { value: "A test project description" } };
       }
@@ -131,14 +133,14 @@ describe("getProjectInfo", () => {
   });
 
   it("should extract application name from ApplicationFullName", () => {
-    (mockIfcAPI.GetLineIDsWithType as any).mockImplementation((_modelID: number, type: number) => {
+    asMock(mockIfcAPI.GetLineIDsWithType).mockImplementation((_modelID: number, type: number) => {
       if (type === WebIFC.IFCAPPLICATION) {
         return { size: () => 1, get: () => 200 };
       }
       return { size: () => 0 };
     });
 
-    (mockIfcAPI.GetLine as any).mockImplementation((_modelID: number, id: number) => {
+    asMock(mockIfcAPI.GetLine).mockImplementation((_modelID: number, id: number) => {
       if (id === 200) {
         return { ApplicationFullName: { value: "Revit 2024" } };
       }
@@ -151,14 +153,14 @@ describe("getProjectInfo", () => {
   });
 
   it("should extract application name from ApplicationIdentifier when ApplicationFullName is not available", () => {
-    (mockIfcAPI.GetLineIDsWithType as any).mockImplementation((_modelID: number, type: number) => {
+    asMock(mockIfcAPI.GetLineIDsWithType).mockImplementation((_modelID: number, type: number) => {
       if (type === WebIFC.IFCAPPLICATION) {
         return { size: () => 1, get: () => 200 };
       }
       return { size: () => 0 };
     });
 
-    (mockIfcAPI.GetLine as any).mockImplementation((_modelID: number, id: number) => {
+    asMock(mockIfcAPI.GetLine).mockImplementation((_modelID: number, id: number) => {
       if (id === 200) {
         return { ApplicationIdentifier: { value: "ArchiCAD" } };
       }
@@ -171,14 +173,14 @@ describe("getProjectInfo", () => {
   });
 
   it("should extract author info from person data", () => {
-    (mockIfcAPI.GetLineIDsWithType as any).mockImplementation((_modelID: number, type: number) => {
+    asMock(mockIfcAPI.GetLineIDsWithType).mockImplementation((_modelID: number, type: number) => {
       if (type === WebIFC.IFCPERSON) {
         return { size: () => 1, get: () => 300 };
       }
       return { size: () => 0 };
     });
 
-    (mockIfcAPI.GetLine as any).mockImplementation((_modelID: number, id: number) => {
+    asMock(mockIfcAPI.GetLine).mockImplementation((_modelID: number, id: number) => {
       if (id === 300) {
         return {
           GivenName: { value: "John" },
@@ -194,14 +196,14 @@ describe("getProjectInfo", () => {
   });
 
   it("should include identification in author if available", () => {
-    (mockIfcAPI.GetLineIDsWithType as any).mockImplementation((_modelID: number, type: number) => {
+    asMock(mockIfcAPI.GetLineIDsWithType).mockImplementation((_modelID: number, type: number) => {
       if (type === WebIFC.IFCPERSON) {
         return { size: () => 1, get: () => 300 };
       }
       return { size: () => 0 };
     });
 
-    (mockIfcAPI.GetLine as any).mockImplementation((_modelID: number, id: number) => {
+    asMock(mockIfcAPI.GetLine).mockImplementation((_modelID: number, id: number) => {
       if (id === 300) {
         return {
           GivenName: { value: "Jane" },
@@ -218,14 +220,14 @@ describe("getProjectInfo", () => {
   });
 
   it("should extract organization name", () => {
-    (mockIfcAPI.GetLineIDsWithType as any).mockImplementation((_modelID: number, type: number) => {
+    asMock(mockIfcAPI.GetLineIDsWithType).mockImplementation((_modelID: number, type: number) => {
       if (type === WebIFC.IFCORGANIZATION) {
         return { size: () => 1, get: () => 400 };
       }
       return { size: () => 0 };
     });
 
-    (mockIfcAPI.GetLine as any).mockImplementation((_modelID: number, id: number) => {
+    asMock(mockIfcAPI.GetLine).mockImplementation((_modelID: number, id: number) => {
       if (id === 400) {
         return { Name: { value: "ACME Corporation" } };
       }
@@ -238,7 +240,7 @@ describe("getProjectInfo", () => {
   });
 
   it("should extract all project info together", () => {
-    (mockIfcAPI.GetLineIDsWithType as any).mockImplementation((_modelID: number, type: number) => {
+    asMock(mockIfcAPI.GetLineIDsWithType).mockImplementation((_modelID: number, type: number) => {
       if (type === WebIFC.IFCPROJECT) return { size: () => 1, get: () => 100 };
       if (type === WebIFC.IFCAPPLICATION) return { size: () => 1, get: () => 200 };
       if (type === WebIFC.IFCPERSON) return { size: () => 1, get: () => 300 };
@@ -246,7 +248,7 @@ describe("getProjectInfo", () => {
       return { size: () => 0 };
     });
 
-    (mockIfcAPI.GetLine as any).mockImplementation((_modelID: number, id: number) => {
+    asMock(mockIfcAPI.GetLine).mockImplementation((_modelID: number, id: number) => {
       if (id === 100) return { Name: { value: "My Project" }, Description: { value: "Project description" } };
       if (id === 200) return { ApplicationFullName: { value: "Test App 1.0" } };
       if (id === 300) return { GivenName: { value: "Alice" }, FamilyName: { value: "Brown" } };
@@ -268,7 +270,7 @@ describe("getProjectInfo", () => {
   it("should handle errors gracefully and return partial results", () => {
     const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    (mockIfcAPI.GetLineIDsWithType as any).mockImplementation(() => {
+    asMock(mockIfcAPI.GetLineIDsWithType).mockImplementation(() => {
       throw new Error("Test error");
     });
 
@@ -288,14 +290,14 @@ describe("getProjectInfo", () => {
   });
 
   it("should handle null project line gracefully", () => {
-    (mockIfcAPI.GetLineIDsWithType as any).mockImplementation((_modelID: number, type: number) => {
+    asMock(mockIfcAPI.GetLineIDsWithType).mockImplementation((_modelID: number, type: number) => {
       if (type === WebIFC.IFCPROJECT) {
         return { size: () => 1, get: () => 100 };
       }
       return { size: () => 0 };
     });
 
-    (mockIfcAPI.GetLine as any).mockReturnValue(null);
+    asMock(mockIfcAPI.GetLine).mockReturnValue(null);
 
     const result = getProjectInfo(mockIfcAPI, 1);
 
@@ -304,14 +306,14 @@ describe("getProjectInfo", () => {
   });
 
   it("should handle empty string values", () => {
-    (mockIfcAPI.GetLineIDsWithType as any).mockImplementation((_modelID: number, type: number) => {
+    asMock(mockIfcAPI.GetLineIDsWithType).mockImplementation((_modelID: number, type: number) => {
       if (type === WebIFC.IFCPERSON) {
         return { size: () => 1, get: () => 300 };
       }
       return { size: () => 0 };
     });
 
-    (mockIfcAPI.GetLine as any).mockImplementation((_modelID: number, id: number) => {
+    asMock(mockIfcAPI.GetLine).mockImplementation((_modelID: number, id: number) => {
       if (id === 300) {
         return {
           GivenName: { value: "" },
@@ -326,3 +328,4 @@ describe("getProjectInfo", () => {
     expect(result.author).toBeNull();
   });
 });
+

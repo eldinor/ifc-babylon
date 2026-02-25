@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import * as WebIFC from "web-ifc";
 import { closeIfcModel } from "../ifcInit";
+import type { Mock } from "vitest";
 
 // Mock WebIFC with a proper class constructor
 vi.mock("web-ifc", () => {
@@ -24,6 +25,7 @@ vi.mock("web-ifc", () => {
 
 describe("closeIfcModel", () => {
   let mockIfcAPI: WebIFC.IfcAPI;
+  const asMock = (fn: unknown): Mock => fn as Mock;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -31,7 +33,7 @@ describe("closeIfcModel", () => {
   });
 
   it("should close an open model", () => {
-    (mockIfcAPI.IsModelOpen as any).mockReturnValue(true);
+    asMock(mockIfcAPI.IsModelOpen).mockReturnValue(true);
 
     closeIfcModel(mockIfcAPI, 1);
 
@@ -40,7 +42,7 @@ describe("closeIfcModel", () => {
   });
 
   it("should not attempt to close a model that is not open", () => {
-    (mockIfcAPI.IsModelOpen as any).mockReturnValue(false);
+    asMock(mockIfcAPI.IsModelOpen).mockReturnValue(false);
 
     closeIfcModel(mockIfcAPI, 999);
 
@@ -49,7 +51,7 @@ describe("closeIfcModel", () => {
   });
 
   it("should close model with correct modelID", () => {
-    (mockIfcAPI.IsModelOpen as any).mockReturnValue(true);
+    asMock(mockIfcAPI.IsModelOpen).mockReturnValue(true);
 
     closeIfcModel(mockIfcAPI, 42);
 
@@ -57,7 +59,7 @@ describe("closeIfcModel", () => {
   });
 
   it("should handle multiple sequential close calls gracefully", () => {
-    (mockIfcAPI.IsModelOpen as any).mockReturnValueOnce(true).mockReturnValueOnce(false);
+    asMock(mockIfcAPI.IsModelOpen).mockReturnValueOnce(true).mockReturnValueOnce(false);
 
     // First close should work
     closeIfcModel(mockIfcAPI, 1);
@@ -70,7 +72,7 @@ describe("closeIfcModel", () => {
 
   it("should log confirmation message when closing model", () => {
     const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    (mockIfcAPI.IsModelOpen as any).mockReturnValue(true);
+    asMock(mockIfcAPI.IsModelOpen).mockReturnValue(true);
 
     closeIfcModel(mockIfcAPI, 1);
 
@@ -81,7 +83,7 @@ describe("closeIfcModel", () => {
 
   it("should not log when model is not open", () => {
     const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    (mockIfcAPI.IsModelOpen as any).mockReturnValue(false);
+    asMock(mockIfcAPI.IsModelOpen).mockReturnValue(false);
 
     closeIfcModel(mockIfcAPI, 1);
 

@@ -95,7 +95,7 @@ async function loadIfcModel(
 
 #### Returns
 
-`Promise<RawIfcModel>` - Raw IFC model data with geometry parts, storey map, and statistics.
+`Promise<RawIfcModel>` - Raw IFC model data with geometry parts and statistics.
 
 #### Example
 
@@ -134,7 +134,6 @@ console.log(model.rawStats); // Statistics
   Parts extracted: 1234
   Vertices: 156,789
   Triangles: 52,263
-  Storey relationships: 5
 ```
 
 ---
@@ -216,7 +215,6 @@ Complete raw model returned by `loadIfcModel`.
 interface RawIfcModel {
   modelID: number; // IFC model identifier
   parts: RawGeometryPart[]; // Array of geometry parts
-  storeyMap: Map<number, number>; // Element ID to storey ID mapping
   rawStats: {
     partCount: number; // Number of geometry parts
     vertexCount: number; // Total vertices

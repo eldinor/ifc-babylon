@@ -26,13 +26,23 @@ function createMockModel(parts: RawGeometryPart[]): RawIfcModel {
   return {
     modelID: 1,
     parts,
-    storeyMap: new Map(),
     rawStats: {
       partCount: parts.length,
       vertexCount: parts.reduce((sum, p) => sum + p.positions.length / 3, 0),
       triangleCount: parts.reduce((sum, p) => sum + p.indices.length / 3, 0),
     },
   };
+}
+
+function getMaterialZOffset(material: unknown): number {
+  if (!material || typeof material !== "object" || !("zOffset" in material)) {
+    throw new Error("Material does not expose zOffset");
+  }
+  const value = (material as { zOffset: unknown }).zOffset;
+  if (typeof value !== "number") {
+    throw new Error("Material zOffset is not a number");
+  }
+  return value;
 }
 
 describe("z-offset cycling", () => {
@@ -58,7 +68,7 @@ describe("z-offset cycling", () => {
 
     // Get all materials and their z-offset values
     const materials = scene.materials.filter((m) => m.name.startsWith("ifc-material-"));
-    const zOffsets = materials.map((m) => (m as any).zOffset);
+    const zOffsets = materials.map((m) => getMaterialZOffset(m));
 
     // All z-offsets should be between 0 and 1.0 (exclusive)
     zOffsets.forEach((zOffset) => {
@@ -83,8 +93,8 @@ describe("z-offset cycling", () => {
     expect(material1).toBeDefined();
     expect(material2).toBeDefined();
 
-    const zOffset1 = (material1 as any).zOffset;
-    const zOffset2 = (material2 as any).zOffset;
+    const zOffset1 = getMaterialZOffset(material1);
+    const zOffset2 = getMaterialZOffset(material2);
 
     // Build second model - should start from 0 again
     disposeSceneMaterials(scene);
@@ -99,8 +109,8 @@ describe("z-offset cycling", () => {
     expect(material3).toBeDefined();
     expect(material4).toBeDefined();
 
-    const zOffset3 = (material3 as any).zOffset;
-    const zOffset4 = (material4 as any).zOffset;
+    const zOffset3 = getMaterialZOffset(material3);
+    const zOffset4 = getMaterialZOffset(material4);
 
     // First material of new model should start near 0
     expect(zOffset3).toBeCloseTo(0, 2);
@@ -115,7 +125,7 @@ describe("z-offset cycling", () => {
     const result = buildIfcModel(model, scene, { verbose: false });
 
     const materials = scene.materials.filter((m) => m.name.startsWith("ifc-material-"));
-    const zOffsets = materials.map((m) => (m as any).zOffset).sort((a, b) => a - b);
+    const zOffsets = materials.map((m) => getMaterialZOffset(m)).sort((a, b) => a - b);
 
     // Should be: 0, 0.05, 0.10, 0.15, 0.20
     expect(zOffsets[0]).toBeCloseTo(0, 2);
@@ -133,7 +143,7 @@ describe("z-offset cycling", () => {
     const result = buildIfcModel(model, scene, { verbose: false });
 
     const materials = scene.materials.filter((m) => m.name.startsWith("ifc-material-"));
-    const zOffsets = materials.map((m) => (m as any).zOffset);
+    const zOffsets = materials.map((m) => getMaterialZOffset(m));
 
     // 21st material should cycle back to 0 (since 20 * 0.05 = 1.0, and 1.0 % 1.0 = 0)
     expect(zOffsets[20]).toBeCloseTo(0, 2);

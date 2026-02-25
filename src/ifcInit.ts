@@ -20,7 +20,6 @@ export interface RawGeometryPart {
 export interface RawIfcModel {
   modelID: number;
   parts: RawGeometryPart[];
-  storeyMap: Map<number, number>;
   rawStats: {
     partCount: number;
     vertexCount: number;
@@ -32,6 +31,7 @@ export interface RawIfcModel {
 export interface IfcInitOptions {
   coordinateToOrigin?: boolean; // web-ifc COORDINATE_TO_ORIGIN (default: true)
   verbose?: boolean; // console logging (default: true)
+  signal?: AbortSignal; // cancellation signal for fetch/parse
 }
 
 /** projectInfo extracted from IFC file */
@@ -41,6 +41,32 @@ export interface ProjectInfoResult {
   application: string | null;
   author: string | null;
   organization: string | null;
+}
+
+interface DisposableGeometry {
+  delete?: () => void;
+}
+
+function createAbortError(): Error {
+  if (typeof DOMException !== "undefined") {
+    return new DOMException("Operation was aborted", "AbortError");
+  }
+  const error = new Error("Operation was aborted");
+  error.name = "AbortError";
+  return error;
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw createAbortError();
+  }
+}
+
+function disposeGeometry(geometry: unknown): void {
+  if (geometry && typeof geometry === "object" && "delete" in geometry) {
+    const disposable = geometry as DisposableGeometry;
+    disposable.delete?.();
+  }
 }
 
 // ============================================================================
@@ -93,29 +119,37 @@ export async function loadIfcModel(
     ...options,
   };
 
+  throwIfAborted(opts.signal);
+
   // Step 1: Open the model
   const modelID = await openModel(ifcAPI, source, opts);
 
-  // Step 2: Stream geometry and extract raw data
-  const { parts, rawStats } = streamGeometry(ifcAPI, modelID, opts);
+  try {
+    throwIfAborted(opts.signal);
 
-  // Step 3: Build storey map for spatial context
-  const storeyMap = buildStoreyMap(ifcAPI, modelID);
+    // Step 2: Stream geometry and extract raw data
+    const { parts, rawStats } = streamGeometry(ifcAPI, modelID, opts);
 
-  if (opts.verbose) {
-    console.log(`\n📊 Raw Model Statistics:`);
-    console.log(`  Parts extracted: ${rawStats.partCount}`);
-    console.log(`  Vertices: ${rawStats.vertexCount.toLocaleString()}`);
-    console.log(`  Triangles: ${rawStats.triangleCount.toLocaleString()}`);
-    console.log(`  Storey relationships: ${storeyMap.size}`);
+    throwIfAborted(opts.signal);
+
+    if (opts.verbose) {
+      console.log(`\n📊 Raw Model Statistics:`);
+      console.log(`  Parts extracted: ${rawStats.partCount}`);
+      console.log(`  Vertices: ${rawStats.vertexCount.toLocaleString()}`);
+      console.log(`  Triangles: ${rawStats.triangleCount.toLocaleString()}`);
+    }
+
+    return {
+      modelID,
+      parts,
+      rawStats,
+    };
+  } catch (error) {
+    if (ifcAPI.IsModelOpen(modelID)) {
+      ifcAPI.CloseModel(modelID);
+    }
+    throw error;
   }
-
-  return {
-    modelID,
-    parts,
-    storeyMap,
-    rawStats,
-  };
 }
 
 /**
@@ -208,10 +242,11 @@ export function getProjectInfo(ifcAPI: WebIFC.IfcAPI, modelID: number): ProjectI
  */
 async function openModel(ifcAPI: WebIFC.IfcAPI, source: string | File, options: IfcInitOptions): Promise<number> {
   let data: ArrayBuffer;
+  throwIfAborted(options.signal);
 
   if (typeof source === "string") {
     console.log(`📥 Fetching IFC from URL: ${source}`);
-    const response = await fetch(source);
+    const response = options.signal ? await fetch(source, { signal: options.signal }) : await fetch(source);
     console.log(
       `📥 Fetch response: status=${response.status}, ok=${response.ok}, type=${response.headers.get("content-type")}`,
     );
@@ -226,6 +261,8 @@ async function openModel(ifcAPI: WebIFC.IfcAPI, source: string | File, options: 
     console.log(`📥 Loading IFC file: ${source.name} (${(source.size / 1024 / 1024).toFixed(2)} MB)`);
     data = await source.arrayBuffer();
   }
+
+  throwIfAborted(options.signal);
 
   // Configure loader settings
   const settings: WebIFC.LoaderSettings = {
@@ -254,6 +291,7 @@ function streamGeometry(
   modelID: number,
   options: IfcInitOptions,
 ): { parts: RawGeometryPart[]; rawStats: { partCount: number; vertexCount: number; triangleCount: number } } {
+  throwIfAborted(options.signal);
   const parts: RawGeometryPart[] = [];
   let totalVertices = 0;
   let totalTriangles = 0;
@@ -263,6 +301,7 @@ function streamGeometry(
     const placedGeometries = flatMesh.geometries;
 
     for (let i = 0; i < placedGeometries.size(); i++) {
+      throwIfAborted(options.signal);
       const placedGeometry = placedGeometries.get(i);
 
       // Skip invalid geometries
@@ -277,7 +316,7 @@ function streamGeometry(
         const indices = ifcAPI.GetIndexArray(geometry.GetIndexData(), geometry.GetIndexDataSize());
 
         if (verts.length === 0 || indices.length === 0) {
-          (geometry as any)?.delete?.();
+          disposeGeometry(geometry);
           continue;
         }
 
@@ -325,10 +364,10 @@ function streamGeometry(
         totalTriangles += indices.length / 3;
 
         // Clean up WASM memory
-        (geometry as any)?.delete?.();
+        disposeGeometry(geometry);
       } catch (error) {
         console.error(`Error processing geometry:`, error);
-        (geometry as any)?.delete?.();
+        disposeGeometry(geometry);
       }
     }
   });
@@ -347,62 +386,7 @@ function streamGeometry(
   };
 }
 
-/**
- * Build storey map for spatial context checking
- */
-function buildStoreyMap(ifcAPI: WebIFC.IfcAPI, modelID: number): Map<number, number> {
-  const elementToStorey = new Map<number, number>();
 
-  try {
-    // Get all building storeys
-    const storeys = ifcAPI.GetLineIDsWithType(modelID, WebIFC.IFCBUILDINGSTOREY);
 
-    for (let i = 0; i < storeys.size(); i++) {
-      const storeyID = storeys.get(i);
 
-      try {
-        // Get all elements in this storey via spatial structure
-        const relAggregates = ifcAPI.GetLineIDsWithType(modelID, WebIFC.IFCRELAGGREGATES);
 
-        for (let j = 0; j < relAggregates.size(); j++) {
-          const relID = relAggregates.get(j);
-          const rel = ifcAPI.GetLine(modelID, relID);
-
-          if (rel.RelatingObject && rel.RelatingObject.value === storeyID) {
-            if (rel.RelatedObjects) {
-              rel.RelatedObjects.forEach((obj: any) => {
-                if (obj && obj.value) {
-                  elementToStorey.set(obj.value, storeyID);
-                }
-              });
-            }
-          }
-        }
-
-        // Also check spatial containment
-        const relContained = ifcAPI.GetLineIDsWithType(modelID, WebIFC.IFCRELCONTAINEDINSPATIALSTRUCTURE);
-
-        for (let j = 0; j < relContained.size(); j++) {
-          const relID = relContained.get(j);
-          const rel = ifcAPI.GetLine(modelID, relID);
-
-          if (rel.RelatingStructure && rel.RelatingStructure.value === storeyID) {
-            if (rel.RelatedElements) {
-              rel.RelatedElements.forEach((elem: any) => {
-                if (elem && elem.value) {
-                  elementToStorey.set(elem.value, storeyID);
-                }
-              });
-            }
-          }
-        }
-      } catch (error) {
-        // Skip errors for individual storeys
-      }
-    }
-  } catch (error) {
-    console.warn("Could not build storey map:", error);
-  }
-
-  return elementToStorey;
-}
