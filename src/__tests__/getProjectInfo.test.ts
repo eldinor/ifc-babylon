@@ -284,7 +284,7 @@ describe("getProjectInfo", () => {
       organization: null,
     });
 
-    expect(consoleSpy).toHaveBeenCalledWith("Error extracting IFC projectInfo:", expect.any(Error));
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("Error extracting IFC projectInfo"), expect.any(Error));
 
     consoleSpy.mockRestore();
   });

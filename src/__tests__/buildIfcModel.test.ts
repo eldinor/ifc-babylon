@@ -153,6 +153,11 @@ describe("buildIfcModel", () => {
 
       expect(result.meshes.length).toBeGreaterThan(0);
       expect(result.meshes[0].material).toBeDefined();
+      expect(result.meshes[0].material?.metadata).toEqual(
+        expect.objectContaining({
+          color: null,
+        }),
+      );
     });
 
     it("should set metadata on meshes", () => {
@@ -618,6 +623,11 @@ describe("buildIfcModel", () => {
       expect(standardMaterial.diffuseColor.r).toBeCloseTo(0.5, 2);
       expect(standardMaterial.diffuseColor.g).toBeCloseTo(0.6, 2);
       expect(standardMaterial.diffuseColor.b).toBeCloseTo(0.7, 2);
+      expect(standardMaterial.metadata).toEqual(
+        expect.objectContaining({
+          color: { r: 0.5, g: 0.6, b: 0.7, a: 1 },
+        }),
+      );
     });
 
     it("should set z-offset on materials to prevent z-fighting", () => {
@@ -686,6 +696,11 @@ describe("buildIfcModel", () => {
       expect(material.albedoColor.r).toBeCloseTo(0.5, 2);
       expect(material.albedoColor.g).toBeCloseTo(0.6, 2);
       expect(material.albedoColor.b).toBeCloseTo(0.7, 2);
+      expect(material.metadata).toEqual(
+        expect.objectContaining({
+          color: { r: 0.5, g: 0.6, b: 0.7, a: 1 },
+        }),
+      );
     });
 
     it("should set alpha on PBR material", () => {
@@ -744,6 +759,11 @@ describe("buildIfcModel", () => {
       expect(material.albedoColor.r).toBeCloseTo(DEFAULT_IFC_MATERIAL_GRAY, 1);
       expect(material.albedoColor.g).toBeCloseTo(DEFAULT_IFC_MATERIAL_GRAY, 1);
       expect(material.albedoColor.b).toBeCloseTo(DEFAULT_IFC_MATERIAL_GRAY, 1);
+      expect(material.metadata).toEqual(
+        expect.objectContaining({
+          color: null,
+        }),
+      );
     });
 
     it("should reuse PBR materials for same colorId", () => {

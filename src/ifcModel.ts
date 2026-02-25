@@ -9,10 +9,9 @@ import {
   Color3,
   StandardMaterial,
   PBRMaterial,
-  MeshBuilder,
-  Texture,
 } from "@babylonjs/core";
 import type { RawIfcModel, RawGeometryPart } from "./ifcInit";
+import { logInfo, logWarn } from "./logging";
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -69,6 +68,10 @@ interface MeshWithColor {
   color: { x: number; y: number; z: number; w: number } | null;
 }
 
+interface IfcMaterialMetadata {
+  color: { r: number; g: number; b: number; a: number } | null;
+}
+
 // ============================================================================
 // PUBLIC API - Scene Building
 // ============================================================================
@@ -86,12 +89,13 @@ export function buildIfcModel(model: RawIfcModel, scene: Scene, options: SceneBu
     generateNormals: false,
     verbose: true,
     freezeAfterBuild: true,
+    usePBRMaterials: false,
     releaseRawPartsAfterBuild: true,
     ...options,
   };
 
   if (opts.verbose) {
-    console.log(`\nBuilding Babylon.js scene from ${model.parts.length} raw parts...`);
+    logInfo(`\nBuilding Babylon.js scene from ${model.parts.length} raw parts...`, { modelID: model.modelID });
   }
 
   /*
@@ -115,9 +119,11 @@ export function buildIfcModel(model: RawIfcModel, scene: Scene, options: SceneBu
     if (error) {
       invalidPartCount++;
       if (opts.verbose) {
-        console.warn(
-          `Skipping invalid part expressID=${part.expressID} geometryExpressID=${part.geometryExpressID}: ${error}`,
-        );
+        logWarn(`Skipping invalid part: ${error}`, {
+          modelID: model.modelID,
+          expressID: part.expressID,
+          geometryExpressID: part.geometryExpressID,
+        });
       }
       return false;
     }
@@ -128,9 +134,9 @@ export function buildIfcModel(model: RawIfcModel, scene: Scene, options: SceneBu
   });
 
   if (opts.verbose) {
-    console.log(`  Created ${meshesWithColor.length} initial meshes`);
+    logInfo(`  Created ${meshesWithColor.length} initial meshes`, { modelID: model.modelID });
     if (invalidPartCount > 0) {
-      console.log(`  Skipped ${invalidPartCount} invalid geometry part(s)`);
+      logInfo(`  Skipped ${invalidPartCount} invalid geometry part(s)`, { modelID: model.modelID });
     }
   }
 
@@ -138,7 +144,7 @@ export function buildIfcModel(model: RawIfcModel, scene: Scene, options: SceneBu
   const meshGroups = groupMeshesByKey(meshesWithColor);
 
   if (opts.verbose) {
-    console.log(`  Grouped into ${meshGroups.size} unique (expressID + material) combinations`);
+    logInfo(`  Grouped into ${meshGroups.size} unique (expressID + material) combinations`, { modelID: model.modelID });
   }
 
   // Create materials and merge groups
@@ -220,8 +226,9 @@ export function buildIfcModel(model: RawIfcModel, scene: Scene, options: SceneBu
       const centerOffset = bounds.center;
       rootNode.position.subtractInPlace(centerOffset);
       if (opts.verbose) {
-        console.log(
+        logInfo(
           `  Model auto-centered at origin (offset: ${centerOffset.x.toFixed(2)}, ${centerOffset.y.toFixed(2)}, ${centerOffset.z.toFixed(2)})`,
+          { modelID: model.modelID },
         );
       }
     }
@@ -239,13 +246,13 @@ export function buildIfcModel(model: RawIfcModel, scene: Scene, options: SceneBu
   };
 
   if (opts.verbose) {
-    console.log(`\nModel building complete:`);
-    console.log(`  Original parts: ${stats.originalPartCount}`);
-    console.log(`  Merged groups: ${stats.mergedGroupCount}`);
-    console.log(`  Skipped groups: ${stats.skippedGroupCount}`);
-    console.log(`  Final meshes: ${stats.finalMeshCount}`);
-    console.log(`  Materials created: ${stats.materialCount}`);
-    console.log(`  Build time: ${stats.buildTimeMs.toFixed(2)}ms`);
+    logInfo(`\nModel building complete:`, { modelID: model.modelID });
+    logInfo(`  Original parts: ${stats.originalPartCount}`, { modelID: model.modelID });
+    logInfo(`  Merged groups: ${stats.mergedGroupCount}`, { modelID: model.modelID });
+    logInfo(`  Skipped groups: ${stats.skippedGroupCount}`, { modelID: model.modelID });
+    logInfo(`  Final meshes: ${stats.finalMeshCount}`, { modelID: model.modelID });
+    logInfo(`  Materials created: ${stats.materialCount}`, { modelID: model.modelID });
+    logInfo(`  Build time: ${stats.buildTimeMs.toFixed(2)}ms`, { modelID: model.modelID });
   }
 
   if (opts.freezeAfterBuild) {
@@ -260,7 +267,7 @@ export function buildIfcModel(model: RawIfcModel, scene: Scene, options: SceneBu
       }
     });
     if (opts.verbose) {
-      console.log(`  IFC meshes and materials frozen for optimal performance`);
+      logInfo(`  IFC meshes and materials frozen for optimal performance`, { modelID: model.modelID });
     }
   }
 
@@ -292,11 +299,11 @@ export function disposeIfcModel(scene: Scene): void {
   const rootNode = scene.getTransformNodeByName("ifc-root");
   if (rootNode) {
     rootNode.dispose();
-    console.log(`ifc-root node and all child meshes disposed`);
+    logInfo(`ifc-root node and all child meshes disposed`);
   }
 
   if (materialCount > 0) {
-    console.log(`${materialCount} IFC materials disposed`);
+    logInfo(`${materialCount} IFC materials disposed`);
   }
 }
 
@@ -369,9 +376,7 @@ export function centerModelAtOrigin(meshes: AbstractMesh[], rootNode?: Transform
     });
   }
 
-  console.log(
-    `Model centered at origin, offset: (${offset.x.toFixed(2)}, ${offset.y.toFixed(2)}, ${offset.z.toFixed(2)})`,
-  );
+  logInfo(`Model centered at origin, offset: (${offset.x.toFixed(2)}, ${offset.y.toFixed(2)}, ${offset.z.toFixed(2)})`);
 
   return offset;
 }
@@ -403,7 +408,7 @@ function createMeshFromPart(
   // Check if normals need to be generated
   let normals = part.normals;
   const hasInvalidNormalLength = normals.length !== part.positions.length;
-  const shouldGenerateNormals = (options.generateNormals && normals.every((v) => v === 0)) || hasInvalidNormalLength;
+  const shouldGenerateNormals = (options.generateNormals && areAllNormalsZero(normals)) || hasInvalidNormalLength;
   if (shouldGenerateNormals) {
     const tempNormals: number[] = [];
     VertexData.ComputeNormals(part.positions, part.indices, tempNormals);
@@ -430,6 +435,15 @@ function createMeshFromPart(
     colorId: part.colorId,
     color: part.color,
   };
+}
+
+function areAllNormalsZero(normals: Float32Array): boolean {
+  for (let i = 0; i < normals.length; i++) {
+    if (normals[i] !== 0) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function validateRawPart(part: RawGeometryPart): string | null {
@@ -548,7 +562,10 @@ function getMaterial(
     material = standardMaterial;
   }
 
+  material.metadata = {
+    color: color ? { r: color.x, g: color.y, b: color.z, a: color.w } : null,
+  } satisfies IfcMaterialMetadata;
+
   materialCache.set(colorId, material);
   return material;
 }
-

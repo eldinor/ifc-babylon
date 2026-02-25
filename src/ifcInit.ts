@@ -1,4 +1,5 @@
 import * as WebIFC from "web-ifc";
+import { logError, logInfo, logWarn } from "./logging";
 
 // ============================================================================
 // TYPE DEFINITIONS - Intermediate Data Contract
@@ -11,7 +12,7 @@ export interface RawGeometryPart {
   positions: Float32Array;
   normals: Float32Array;
   indices: Uint32Array;
-  flatTransform: number[];
+  flatTransform: ArrayLike<number>;
   color: { x: number; y: number; z: number; w: number } | null;
   colorId: number;
 }
@@ -45,6 +46,26 @@ export interface ProjectInfoResult {
 
 interface DisposableGeometry {
   delete?: () => void;
+}
+
+interface GeometryErrorContext {
+  modelID: number;
+  expressID: number;
+  geometryExpressID: number;
+}
+
+class IfcGeometryProcessingError extends Error {
+  readonly context: GeometryErrorContext;
+  readonly cause: unknown;
+
+  constructor(context: GeometryErrorContext, cause: unknown) {
+    super(
+      `Error processing geometry (modelID=${context.modelID}, expressID=${context.expressID}, geometryExpressID=${context.geometryExpressID})`,
+    );
+    this.name = "IfcGeometryProcessingError";
+    this.context = context;
+    this.cause = cause;
+  }
 }
 
 function createAbortError(): Error {
@@ -95,7 +116,7 @@ export async function initializeWebIFC(
   // Set log level
   ifcAPI.SetLogLevel(logLevel);
 
-  console.log(`✓ Web-IFC initialized in ${(performance.now() - startTime).toFixed(2)}ms`);
+  logInfo(`Web-IFC initialized in ${(performance.now() - startTime).toFixed(2)}ms`);
 
   return ifcAPI;
 }
@@ -133,10 +154,10 @@ export async function loadIfcModel(
     throwIfAborted(opts.signal);
 
     if (opts.verbose) {
-      console.log(`\n📊 Raw Model Statistics:`);
-      console.log(`  Parts extracted: ${rawStats.partCount}`);
-      console.log(`  Vertices: ${rawStats.vertexCount.toLocaleString()}`);
-      console.log(`  Triangles: ${rawStats.triangleCount.toLocaleString()}`);
+      logInfo(`\nRaw model statistics:`, { modelID });
+      logInfo(`  Parts extracted: ${rawStats.partCount}`, { modelID });
+      logInfo(`  Vertices: ${rawStats.vertexCount.toLocaleString()}`, { modelID });
+      logInfo(`  Triangles: ${rawStats.triangleCount.toLocaleString()}`, { modelID });
     }
 
     return {
@@ -158,7 +179,7 @@ export async function loadIfcModel(
 export function closeIfcModel(ifcAPI: WebIFC.IfcAPI, modelID: number): void {
   if (ifcAPI.IsModelOpen(modelID)) {
     ifcAPI.CloseModel(modelID);
-    console.log(`✓ Model ${modelID} closed and memory freed`);
+    logInfo("Model closed and memory freed", { modelID });
   }
 }
 
@@ -227,7 +248,7 @@ export function getProjectInfo(ifcAPI: WebIFC.IfcAPI, modelID: number): ProjectI
       }
     }
   } catch (error) {
-    console.warn("Error extracting IFC projectInfo:", error);
+    logWarn("Error extracting IFC projectInfo", { modelID }, error);
   }
 
   return projectInfo;
@@ -245,10 +266,10 @@ async function openModel(ifcAPI: WebIFC.IfcAPI, source: string | File, options: 
   throwIfAborted(options.signal);
 
   if (typeof source === "string") {
-    console.log(`📥 Fetching IFC from URL: ${source}`);
+    logInfo(`Fetching IFC from URL: ${source}`);
     const response = options.signal ? await fetch(source, { signal: options.signal }) : await fetch(source);
-    console.log(
-      `📥 Fetch response: status=${response.status}, ok=${response.ok}, type=${response.headers.get("content-type")}`,
+    logInfo(
+      `Fetch response: status=${response.status}, ok=${response.ok}, type=${response.headers.get("content-type")}`,
     );
 
     if (!response.ok) {
@@ -256,9 +277,9 @@ async function openModel(ifcAPI: WebIFC.IfcAPI, source: string | File, options: 
     }
 
     data = await response.arrayBuffer();
-    console.log(`📥 Received ${(data.byteLength / 1024 / 1024).toFixed(2)} MB`);
+    logInfo(`Received ${(data.byteLength / 1024 / 1024).toFixed(2)} MB`);
   } else {
-    console.log(`📥 Loading IFC file: ${source.name} (${(source.size / 1024 / 1024).toFixed(2)} MB)`);
+    logInfo(`Loading IFC file: ${source.name} (${(source.size / 1024 / 1024).toFixed(2)} MB)`);
     data = await source.arrayBuffer();
   }
 
@@ -272,9 +293,9 @@ async function openModel(ifcAPI: WebIFC.IfcAPI, source: string | File, options: 
     TAPE_SIZE: 67108864,
   };
 
-  console.log(`📥 Opening IFC model (${(data.byteLength / 1024 / 1024).toFixed(2)} MB)...`);
+  logInfo(`Opening IFC model (${(data.byteLength / 1024 / 1024).toFixed(2)} MB)...`);
   const modelID = ifcAPI.OpenModel(new Uint8Array(data), settings);
-  console.log(`📥 OpenModel returned modelID: ${modelID}`);
+  logInfo("OpenModel returned", { modelID });
 
   if (modelID === -1) {
     throw new Error("Failed to open IFC model");
@@ -354,7 +375,7 @@ function streamGeometry(
           positions,
           normals,
           indices: new Uint32Array(indices),
-          flatTransform: Array.from(placedGeometry.flatTransformation),
+          flatTransform: placedGeometry.flatTransformation,
           color,
           colorId,
         });
@@ -366,14 +387,19 @@ function streamGeometry(
         // Clean up WASM memory
         disposeGeometry(geometry);
       } catch (error) {
-        console.error(`Error processing geometry:`, error);
+        const context: GeometryErrorContext = {
+          modelID,
+          expressID: flatMesh.expressID,
+          geometryExpressID: placedGeometry.geometryExpressID,
+        };
+        logError("Error processing geometry", context, new IfcGeometryProcessingError(context, error));
         disposeGeometry(geometry);
       }
     }
   });
 
   if (options.verbose) {
-    console.log(`\n📦 Collected ${parts.length} geometry parts`);
+    logInfo(`\nCollected ${parts.length} geometry parts`, { modelID });
   }
 
   return {

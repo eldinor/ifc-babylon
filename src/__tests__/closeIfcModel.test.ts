@@ -76,7 +76,7 @@ describe("closeIfcModel", () => {
 
     closeIfcModel(mockIfcAPI, 1);
 
-    expect(consoleSpy).toHaveBeenCalledWith("✓ Model 1 closed and memory freed");
+    expect(consoleSpy).toHaveBeenCalledWith("Model closed and memory freed (modelID=1)");
 
     consoleSpy.mockRestore();
   });

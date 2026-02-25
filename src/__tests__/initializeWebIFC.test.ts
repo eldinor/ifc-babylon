@@ -65,7 +65,7 @@ describe("initializeWebIFC", () => {
 
     await initializeWebIFC();
 
-    expect(consoleSpy).toHaveBeenCalledWith(expect.stringMatching(/✓ Web-IFC initialized in \d+\.?\d*ms/));
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringMatching(/Web-IFC initialized in \d+\.?\d*ms/));
 
     consoleSpy.mockRestore();
   });

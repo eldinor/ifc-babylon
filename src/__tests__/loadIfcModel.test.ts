@@ -346,7 +346,7 @@ describe("loadIfcModel", () => {
 
     await loadIfcModel(mockIfcAPI, mockFile, { verbose: true });
 
-    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("📊 Raw Model Statistics:"));
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("Raw model statistics:"));
 
     consoleSpy.mockRestore();
   });
@@ -357,7 +357,7 @@ describe("loadIfcModel", () => {
     await loadIfcModel(mockIfcAPI, mockFile, { verbose: false });
 
     // Should not log statistics
-    expect(consoleSpy).not.toHaveBeenCalledWith(expect.stringContaining("📊 Raw Model Statistics:"));
+    expect(consoleSpy).not.toHaveBeenCalledWith(expect.stringContaining("Raw model statistics:"));
 
     consoleSpy.mockRestore();
   });
@@ -387,7 +387,17 @@ describe("loadIfcModel", () => {
 
     const result = await loadIfcModel(mockIfcAPI, mockFile, mockOptions);
 
-    expect(consoleSpy).toHaveBeenCalledWith("Error processing geometry:", expect.any(Error));
+    expect(consoleSpy).toHaveBeenCalledWith(
+      "Error processing geometry (modelID=1, expressID=100, geometryExpressID=200)",
+      expect.objectContaining({
+        name: "IfcGeometryProcessingError",
+        context: {
+          modelID: 1,
+          expressID: 100,
+          geometryExpressID: 200,
+        },
+      }),
+    );
     expect(result.parts).toHaveLength(0); // Error should be caught, part not added
 
     consoleSpy.mockRestore();
