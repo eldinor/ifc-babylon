@@ -12,6 +12,17 @@ import {
   TransformNode,
 } from "@babylonjs/core";
 
+const VIEWER_CONFIG = {
+  overlayAlpha: 0.3,
+  environmentTextureLevel: 0.7,
+  camera: {
+    radiusFromDiagonalMultiplier: 1.5,
+    lowerRadiusFromDiagonalMultiplier: 0.3,
+    upperRadiusFromDiagonalMultiplier: 5,
+    wheelPrecisionFromDiagonalMultiplier: 0.01,
+  },
+} as const;
+
 // Initialize web-ifc API
 let ifcAPI: IfcAPI | null = null;
 
@@ -23,13 +34,24 @@ let currentRootNode: TransformNode | null = null;
 // Store currently highlighted mesh
 let currentHighlightedMesh: AbstractMesh | null = null;
 
+interface IfcMeshMetadata {
+  expressID: number;
+  modelID: number;
+}
+
+function isIfcMeshMetadata(metadata: unknown): metadata is IfcMeshMetadata {
+  if (typeof metadata !== "object" || metadata === null) return false;
+  const value = metadata as Partial<IfcMeshMetadata>;
+  return typeof value.expressID === "number" && typeof value.modelID === "number";
+}
+
 try {
   // Set WASM path to "./" so web-ifc can find web-ifc.wasm in production
   // In dev, Vite serves from node_modules; in prod, vite-plugin-static-copy puts it at dist root
   ifcAPI = await initializeWebIFC("./");
-  console.log("✓ web-ifc initialized successfully!");
+  console.log("web-ifc initialized successfully");
 } catch (error) {
-  console.error("⚠ Failed to initialize web-ifc:", error);
+  console.error("Failed to initialize web-ifc:", error);
   console.log("  The Babylon.js scene will still work, but IFC loading will not be available");
 }
 
@@ -42,27 +64,29 @@ const engine = new Engine(canvas, true);
 /**
  * Setup picking handler for IFC elements
  */
-const setupPickingHandler = (scene: Scene, ifcAPI: any) => {
+const setupPickingHandler = (scene: Scene, ifcAPI: IfcAPI) => {
   scene.onPointerDown = (evt, pickResult) => {
     // Only handle left click
     if (evt.button !== 0) return;
 
     if (pickResult.hit && pickResult.pickedMesh) {
       const pickedMesh = pickResult.pickedMesh;
-      const metadata = pickedMesh.metadata;
-
-      if (metadata && metadata.expressID !== undefined && metadata.modelID !== undefined) {
+      if (isIfcMeshMetadata(pickedMesh.metadata)) {
+        const metadata = pickedMesh.metadata;
         const expressID = metadata.expressID;
         const modelID = metadata.modelID;
 
-        console.log(`\n🎯 Picked IFC Element:`);
+        console.log(`\nPicked IFC Element:`);
         console.log(`  Mesh: ${pickedMesh.name}`);
         console.log(`  Express ID: ${expressID}`);
         console.log(`  Model ID: ${modelID}`);
 
         try {
-          // Fetch FULL element data — includes ALL properties
-          const element = ifcAPI.GetLine(modelID, expressID, true);
+          // Fetch full element data - includes all properties
+          const element = ifcAPI.GetLine(modelID, expressID, true) as {
+            type: number;
+            Name?: { value?: string };
+          };
           // Get the IFC type name (e.g., "IFCWALL", "IFCDOOR", etc.)
           const typeName = ifcAPI.GetNameFromTypeCode(element.type);
           console.log(`  Element type name:`, typeName);
@@ -81,7 +105,7 @@ const setupPickingHandler = (scene: Scene, ifcAPI: any) => {
           // Add teal overlay to picked mesh
           pickedMesh.renderOverlay = true;
           pickedMesh.overlayColor = Color3.Teal();
-          pickedMesh.overlayAlpha = 0.3;
+          pickedMesh.overlayAlpha = VIEWER_CONFIG.overlayAlpha;
           currentHighlightedMesh = pickedMesh;
 
           // Update upper text with element info
@@ -152,7 +176,7 @@ const showProjectInfo = (modelID: number) => {
     }
   }
 
-  console.log("\n📋 IFC Project Info:");
+  console.log("\nIFC Project Info:");
   console.log(`  Project: ${projectInfo.projectName || "N/A"}`);
   console.log(`  Description: ${projectInfo.projectDescription || "N/A"}`);
   console.log(`  Application: ${projectInfo.application || "N/A"}`);
@@ -188,16 +212,16 @@ const adjustCameraToMeshes = (meshes: AbstractMesh[], camera: ArcRotateCamera) =
   camera.target = bounds.center;
 
   // Set radius based on model diagonal with some margin
-  camera.radius = bounds.diagonal * 1.5;
+  camera.radius = bounds.diagonal * VIEWER_CONFIG.camera.radiusFromDiagonalMultiplier;
 
   // Set a nice isometric view angle
   camera.alpha = -Math.PI / 4; // 45 degrees around Y axis
   camera.beta = Math.PI / 3; // 60 degrees from horizontal
 
   // Ensure camera limits are appropriate
-  camera.lowerRadiusLimit = bounds.diagonal * 0.3;
-  camera.upperRadiusLimit = bounds.diagonal * 5;
-  camera.wheelPrecision = bounds.diagonal * 0.01;
+  camera.lowerRadiusLimit = bounds.diagonal * VIEWER_CONFIG.camera.lowerRadiusFromDiagonalMultiplier;
+  camera.upperRadiusLimit = bounds.diagonal * VIEWER_CONFIG.camera.upperRadiusFromDiagonalMultiplier;
+  camera.wheelPrecision = bounds.diagonal * VIEWER_CONFIG.camera.wheelPrecisionFromDiagonalMultiplier;
 
   console.log(`  Camera positioned: radius=${camera.radius.toFixed(2)}`);
 };
@@ -210,7 +234,7 @@ const loadIfc = async (scene: Scene, source: string | File) => {
     throw new Error("IFC API not initialized");
   }
 
-  console.log(`\n📦 Loading IFC file...`);
+  console.log(`\nLoading IFC file...`);
 
   // Step 1: Load raw IFC model data (web-ifc only)
   const model = await loadIfcModel(ifcAPI, source, {
@@ -226,9 +250,10 @@ const loadIfc = async (scene: Scene, source: string | File) => {
     generateNormals: false,
     verbose: true,
     freezeAfterBuild: true,
+    usePBRMaterials: true,
   });
 
-  console.log(`\n✓ IFC loaded successfully`);
+  console.log(`\nIFC loaded successfully`);
   console.log(`  ${meshes.length} meshes, ${model.rawStats.triangleCount.toLocaleString()} triangles`);
 
   return { meshes, rootNode, modelID: model.modelID, stats };
@@ -252,7 +277,15 @@ const createScene = async (): Promise<Scene> => {
 
   // Create a light
   const light = new HemisphericLight("light", new Vector3(0, 1, 0), scene);
-  light.intensity = 0.7;
+  light.intensity = 0.01;
+  light.setEnabled(false);
+
+  // Setup environment for PBR materials if needed
+
+  if (!scene.environmentTexture) {
+    scene.createDefaultEnvironment({ createGround: false, createSkybox: false });
+    scene.environmentTexture!.level = VIEWER_CONFIG.environmentTextureLevel;
+  }
 
   // Setup picking handler for IFC elements (if API is available)
   if (ifcAPI) {
@@ -273,7 +306,7 @@ const createScene = async (): Promise<Scene> => {
         console.log(`  Model root node: ${rootNode.name} with ${rootNode.getChildMeshes().length} child meshes`);
       }
 
-      console.log(`✓ Loaded ${currentIfcMeshes.length} IFC meshes (Model ID: ${modelID})`);
+      console.log(`Loaded ${currentIfcMeshes.length} IFC meshes (Model ID: ${modelID})`);
       console.log(`  Build time: ${stats.buildTimeMs.toFixed(2)}ms`);
 
       // Show project info in upper text
@@ -344,7 +377,7 @@ if (ifcAPI) {
     }
 
     try {
-      console.log(`\n📦 Loading dropped file: ${file.name}`);
+      console.log(`\nLoading dropped file: ${file.name}`);
 
       // Dispose of previously loaded model
       if (currentIfcMeshes.length > 0 || currentModelID !== null || currentRootNode !== null) {
@@ -393,7 +426,7 @@ if (ifcAPI) {
         adjustCameraToMeshes(meshes, camera);
       }
 
-      console.log(`✅ Successfully loaded ${file.name}`);
+      console.log(`Successfully loaded ${file.name}`);
       console.log(`  Statistics: ${meshes.length} meshes, ${stats.buildTimeMs.toFixed(2)}ms\n`);
     } catch (error) {
       console.error("Failed to load IFC file:", error);
@@ -403,7 +436,6 @@ if (ifcAPI) {
 }
 
 // Add a reset camera button or functionality (optional)
-//@ts-ignore
 const resetCamera = () => {
   if (currentIfcMeshes.length > 0) {
     const camera = scene.activeCamera as ArcRotateCamera;

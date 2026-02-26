@@ -55,13 +55,13 @@ const ifcAPI = await initializeWebIFC("./");
 
 // Initialize with custom log level
 import * as WebIFC from "web-ifc";
-const ifcAPI = await initializeWebIFC("./", WebIFC.LogLevel.LOG_LEVEL_WARNING);
+const ifcAPI = await initializeWebIFC("./", WebIFC.LogLevel.LOG_LEVEL_WARN);
 ```
 
 #### Console Output
 
 ```
-✓ Web-IFC initialized in Xms
+Web-IFC initialized in Xms
 ```
 
 ---
@@ -95,7 +95,7 @@ async function loadIfcModel(
 
 #### Returns
 
-`Promise<RawIfcModel>` - Raw IFC model data with geometry parts, storey map, and statistics.
+`Promise<RawIfcModel>` - Raw IFC model data with geometry parts and statistics.
 
 #### Example
 
@@ -123,18 +123,17 @@ console.log(model.rawStats); // Statistics
 #### Console Output (verbose mode)
 
 ```
-📥 Fetching IFC from URL: /test.ifc
-📥 Received 2.45 MB
-📥 Opening IFC model (2.45 MB)...
-📥 OpenModel returned modelID: 0
+Fetching IFC from URL: /test.ifc
+Received 2.45 MB
+Opening IFC model (2.45 MB)...
+OpenModel returned (modelID=0)
 
-📦 Collected 1234 geometry parts
+Collected 1234 geometry parts (modelID=0)
 
-📊 Raw Model Statistics:
-  Parts extracted: 1234
-  Vertices: 156,789
-  Triangles: 52,263
-  Storey relationships: 5
+Raw model statistics: (modelID=0)
+  Parts extracted: 1234 (modelID=0)
+  Vertices: 156,789 (modelID=0)
+  Triangles: 52,263 (modelID=0)
 ```
 
 ---
@@ -166,7 +165,7 @@ closeIfcModel(ifcAPI, model.modelID);
 #### Console Output
 
 ```
-✓ Model 0 closed and memory freed
+Model closed and memory freed (modelID=0)
 ```
 
 ---
@@ -216,7 +215,6 @@ Complete raw model returned by `loadIfcModel`.
 interface RawIfcModel {
   modelID: number; // IFC model identifier
   parts: RawGeometryPart[]; // Array of geometry parts
-  storeyMap: Map<number, number>; // Element ID to storey ID mapping
   rawStats: {
     partCount: number; // Number of geometry parts
     vertexCount: number; // Total vertices
@@ -236,7 +234,7 @@ interface RawGeometryPart {
   positions: Float32Array; // Vertex positions (x, y, z)
   normals: Float32Array; // Vertex normals (nx, ny, nz)
   indices: Uint32Array; // Triangle indices
-  flatTransform: number[]; // 4x4 transformation matrix (16 values)
+  flatTransform: ArrayLike<number>; // 4x4 transformation matrix (16 values)
   color: {
     // RGBA color (normalized 0-1)
     x: number; // R
@@ -256,6 +254,7 @@ Configuration for IFC loader.
 interface IfcInitOptions {
   coordinateToOrigin?: boolean; // Move to origin (default: true)
   verbose?: boolean; // Console logging (default: true)
+  signal?: AbortSignal; // Cancellation signal
 }
 ```
 
@@ -305,6 +304,8 @@ function buildIfcModel(model: RawIfcModel, scene: Scene, options?: SceneBuildOpt
 | `generateNormals`  | `boolean` | `false` | Generate normals if missing.                     |
 | `verbose`          | `boolean` | `true`  | Enable console logging during building.          |
 | `freezeAfterBuild` | `boolean` | `true`  | Freeze meshes and materials for performance.     |
+| `usePBRMaterials`  | `boolean` | `false` | Use `PBRMaterial` instead of `StandardMaterial`. |
+| `releaseRawPartsAfterBuild` | `boolean` | `true` | Release `model.parts` after scene build.         |
 
 #### Returns
 
@@ -331,20 +332,19 @@ console.log(`Build time: ${stats.buildTimeMs}ms`);
 #### Console Output (verbose mode)
 
 ```
-🏗️  Building Babylon.js scene from 1234 raw parts...
-  Created 1234 initial meshes
-  Grouped into 567 unique (expressID + material) combinations
+Building Babylon.js scene from 1234 raw parts... (modelID=0)
+  Created 1234 initial meshes (modelID=0)
+  Grouped into 567 unique (expressID + material) combinations (modelID=0)
+  Model auto-centered at origin (offset: 10.50, 0.00, -5.25) (modelID=0)
 
-📍 Model auto-centered at origin (offset: 10.50, 0.00, -5.25)
-
-✅ Scene building complete:
-  Original parts: 1234
-  Merged groups: 100
-  Skipped groups: 5
-  Final meshes: 1129
-  Materials created: 15
-  Build time: 234.56ms
-  IFC meshes and materials frozen for optimal performance
+Model building complete: (modelID=0)
+  Original parts: 1234 (modelID=0)
+  Merged groups: 100 (modelID=0)
+  Skipped groups: 5 (modelID=0)
+  Final meshes: 1129 (modelID=0)
+  Materials created: 15 (modelID=0)
+  Build time: 234.56ms (modelID=0)
+  IFC meshes and materials frozen for optimal performance (modelID=0)
 ```
 
 ---
@@ -375,8 +375,8 @@ disposeIfcModel(scene);
 #### Console Output
 
 ```
-✓ ifc-root node and all child meshes disposed
-✓ 15 IFC materials disposed
+ifc-root node and all child meshes disposed
+15 IFC materials disposed
 ```
 
 ---
@@ -463,6 +463,8 @@ interface SceneBuildOptions {
   generateNormals?: boolean; // Generate normals if missing (default: false)
   verbose?: boolean; // Console logging (default: true)
   freezeAfterBuild?: boolean; // Freeze for performance (default: true)
+  usePBRMaterials?: boolean; // Use PBR materials (default: false)
+  releaseRawPartsAfterBuild?: boolean; // Release model.parts after build (default: true)
 }
 ```
 
@@ -590,6 +592,23 @@ scene.onPointerDown = (evt, pickResult) => {
 };
 ```
 
+## Material Metadata
+
+Materials created by `buildIfcModel` include metadata with IFC color information:
+
+```typescript
+material.metadata = {
+  color: {
+    r: number;
+    g: number;
+    b: number;
+    a: number;
+  } | null;
+};
+```
+
+When an IFC part has no explicit color, `material.metadata.color` is `null`.
+
 ---
 
 ## Performance Notes
@@ -617,3 +636,4 @@ if (ifcAPI.IsModelOpen(modelID)) {
   closeIfcModel(ifcAPI, modelID);
 }
 ```
+

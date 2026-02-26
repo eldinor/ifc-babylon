@@ -8,8 +8,10 @@ import {
   Vector3,
   Color3,
   StandardMaterial,
+  PBRMaterial,
 } from "@babylonjs/core";
 import type { RawIfcModel, RawGeometryPart } from "./ifcInit";
+import { logInfo, logWarn } from "./logging";
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -23,7 +25,15 @@ export interface SceneBuildOptions {
   generateNormals?: boolean; // default: false
   verbose?: boolean; // default: true
   freezeAfterBuild?: boolean; // default: true
+  usePBRMaterials?: boolean; // default: false
+  releaseRawPartsAfterBuild?: boolean; // default: true
 }
+
+export const MATERIAL_Z_OFFSET_STEP = 0.05;
+export const MATERIAL_Z_OFFSET_WRAP = 1.0;
+export const DEFAULT_IFC_MATERIAL_GRAY = 0.8;
+export const DEFAULT_PBR_METALLIC = 0;
+export const DEFAULT_PBR_ROUGHNESS = 0.7;
 
 /** Result of building a scene */
 export interface SceneBuildResult {
@@ -58,6 +68,10 @@ interface MeshWithColor {
   color: { x: number; y: number; z: number; w: number } | null;
 }
 
+interface IfcMaterialMetadata {
+  color: { r: number; g: number; b: number; a: number } | null;
+}
+
 // ============================================================================
 // PUBLIC API - Scene Building
 // ============================================================================
@@ -75,34 +89,66 @@ export function buildIfcModel(model: RawIfcModel, scene: Scene, options: SceneBu
     generateNormals: false,
     verbose: true,
     freezeAfterBuild: true,
+    usePBRMaterials: false,
+    releaseRawPartsAfterBuild: true,
     ...options,
   };
 
   if (opts.verbose) {
-    console.log(`\n🏗️  Building Babylon.js scene from ${model.parts.length} raw parts...`);
+    logInfo(`\nBuilding Babylon.js scene from ${model.parts.length} raw parts...`, { modelID: model.modelID });
   }
+
+  /*
+  const skybox = MeshBuilder.CreateBox("skyBox", { size: 10000 }, scene);
+  const skyboxMaterial = new PBRMaterial("skyBoxMaterial", scene);
+  skyboxMaterial.backFaceCulling = false;
+  skyboxMaterial.reflectionTexture = scene.environmentTexture;
+  skyboxMaterial.reflectionTexture!.coordinatesMode = Texture.SKYBOX_MODE;
+  skyboxMaterial.disableLighting = true;
+  skyboxMaterial.microSurface = 0.3;
+  // skybox.material = skyboxMaterial;
+  */
 
   // Create root transform node (without scaling yet)
   const rootNode = new TransformNode("ifc-root", scene);
 
-  // Create meshes from raw parts
-  const meshesWithColor: MeshWithColor[] = model.parts.map((part) => {
+  // Validate and create meshes from raw parts
+  let invalidPartCount = 0;
+  const validParts = model.parts.filter((part) => {
+    const error = validateRawPart(part);
+    if (error) {
+      invalidPartCount++;
+      if (opts.verbose) {
+        logWarn(`Skipping invalid part: ${error}`, {
+          modelID: model.modelID,
+          expressID: part.expressID,
+          geometryExpressID: part.geometryExpressID,
+        });
+      }
+      return false;
+    }
+    return true;
+  });
+  const meshesWithColor: MeshWithColor[] = validParts.map((part) => {
     return createMeshFromPart(part, model.modelID, scene, rootNode, opts);
   });
 
   if (opts.verbose) {
-    console.log(`  Created ${meshesWithColor.length} initial meshes`);
+    logInfo(`  Created ${meshesWithColor.length} initial meshes`, { modelID: model.modelID });
+    if (invalidPartCount > 0) {
+      logInfo(`  Skipped ${invalidPartCount} invalid geometry part(s)`, { modelID: model.modelID });
+    }
   }
 
   // Group by (expressID + colorId)
   const meshGroups = groupMeshesByKey(meshesWithColor);
 
   if (opts.verbose) {
-    console.log(`  Grouped into ${meshGroups.size} unique (expressID + material) combinations`);
+    logInfo(`  Grouped into ${meshGroups.size} unique (expressID + material) combinations`, { modelID: model.modelID });
   }
 
   // Create materials and merge groups
-  const materialCache = new Map<number, StandardMaterial>();
+  const materialCache = new Map<number, StandardMaterial | PBRMaterial>();
   const finalMeshes: AbstractMesh[] = [];
   let mergedCount = 0;
   let skippedCount = 0;
@@ -117,7 +163,7 @@ export function buildIfcModel(model: RawIfcModel, scene: Scene, options: SceneBu
     // Get or create material
     const material = getMaterial(colorId, color, scene, materialCache, materialZOffset, opts);
     // Increment z-offset with modulo to prevent infinite growth
-    materialZOffset = (materialZOffset + 0.05) % 1.0;
+    materialZOffset = (materialZOffset + MATERIAL_Z_OFFSET_STEP) % MATERIAL_Z_OFFSET_WRAP;
 
     if (meshes.length === 1) {
       // Single mesh - no merging needed
@@ -126,51 +172,35 @@ export function buildIfcModel(model: RawIfcModel, scene: Scene, options: SceneBu
       mesh.material = material;
       finalMeshes.push(mesh);
     } else if (opts.mergeMeshes) {
-      // Multiple meshes - check if we can merge
-      const canMerge = canMergeMeshes(meshes, model.storeyMap);
+      // Multiple meshes - merge parts belonging to the same element/material group.
+      const mergedMesh = Mesh.MergeMeshes(
+        meshes,
+        true, // disposeSource
+        true, // allow32BitsIndices
+        undefined, // meshSubclass
+        false, // subdivideWithSubMeshes
+        false, // multiMultiMaterials
+      );
 
-      if (canMerge) {
-        // Safe to merge
-        const mergedMesh = Mesh.MergeMeshes(
-          meshes,
-          true, // disposeSource
-          true, // allow32BitsIndices
-          undefined, // meshSubclass
-          false, // subdivideWithSubMeshes
-          false, // multiMultiMaterials
-        );
-
-        if (mergedMesh) {
-          mergedMesh.name = `ifc-${expressID}`;
-          mergedMesh.parent = rootNode;
-          mergedMesh.material = material;
-          mergedMesh.metadata = {
-            expressID: expressID,
-            modelID: model.modelID,
-          };
-          mergedMesh.isVisible = true;
-          finalMeshes.push(mergedMesh);
-          mergedCount++;
-        } else {
-          // Merge failed - keep original meshes
-          meshes.forEach((mesh) => {
-            mesh.name = `ifc-${expressID}`;
-            mesh.material = material;
-            finalMeshes.push(mesh);
-          });
-          skippedCount++;
-        }
+      if (mergedMesh) {
+        mergedMesh.name = `ifc-${expressID}`;
+        mergedMesh.parent = rootNode;
+        mergedMesh.material = material;
+        mergedMesh.metadata = {
+          expressID: expressID,
+          modelID: model.modelID,
+        };
+        mergedMesh.isVisible = true;
+        finalMeshes.push(mergedMesh);
+        mergedCount++;
       } else {
-        // Cannot merge - different storeys
+        // Merge failed - keep original meshes
         meshes.forEach((mesh) => {
           mesh.name = `ifc-${expressID}`;
           mesh.material = material;
           finalMeshes.push(mesh);
         });
         skippedCount++;
-        if (opts.verbose) {
-          console.log(`  ⚠ Skipped merging ${meshes.length} parts for expressID ${expressID} (different storeys)`);
-        }
       }
     } else {
       // Merging disabled - keep all meshes
@@ -196,8 +226,9 @@ export function buildIfcModel(model: RawIfcModel, scene: Scene, options: SceneBu
       const centerOffset = bounds.center;
       rootNode.position.subtractInPlace(centerOffset);
       if (opts.verbose) {
-        console.log(
-          `  📍 Model auto-centered at origin (offset: ${centerOffset.x.toFixed(2)}, ${centerOffset.y.toFixed(2)}, ${centerOffset.z.toFixed(2)})`,
+        logInfo(
+          `  Model auto-centered at origin (offset: ${centerOffset.x.toFixed(2)}, ${centerOffset.y.toFixed(2)}, ${centerOffset.z.toFixed(2)})`,
+          { modelID: model.modelID },
         );
       }
     }
@@ -215,23 +246,20 @@ export function buildIfcModel(model: RawIfcModel, scene: Scene, options: SceneBu
   };
 
   if (opts.verbose) {
-    console.log(`\n✅ Model building complete:`);
-    console.log(`  Original parts: ${stats.originalPartCount}`);
-    console.log(`  Merged groups: ${stats.mergedGroupCount}`);
-    console.log(`  Skipped groups: ${stats.skippedGroupCount}`);
-    console.log(`  Final meshes: ${stats.finalMeshCount}`);
-    console.log(`  Materials created: ${stats.materialCount}`);
-    console.log(`  Build time: ${stats.buildTimeMs.toFixed(2)}ms`);
+    logInfo(`\nModel building complete:`, { modelID: model.modelID });
+    logInfo(`  Original parts: ${stats.originalPartCount}`, { modelID: model.modelID });
+    logInfo(`  Merged groups: ${stats.mergedGroupCount}`, { modelID: model.modelID });
+    logInfo(`  Skipped groups: ${stats.skippedGroupCount}`, { modelID: model.modelID });
+    logInfo(`  Final meshes: ${stats.finalMeshCount}`, { modelID: model.modelID });
+    logInfo(`  Materials created: ${stats.materialCount}`, { modelID: model.modelID });
+    logInfo(`  Build time: ${stats.buildTimeMs.toFixed(2)}ms`, { modelID: model.modelID });
   }
 
   if (opts.freezeAfterBuild) {
     // Freeze only IFC meshes that are children of ifc-root
-    const rootNode = scene.getTransformNodeByName("ifc-root");
-    if (rootNode) {
-      rootNode.getChildMeshes().forEach((mesh) => {
-        mesh.freezeWorldMatrix();
-      });
-    }
+    rootNode.getChildMeshes().forEach((mesh) => {
+      mesh.freezeWorldMatrix();
+    });
     // Freeze IFC materials only
     scene.materials.forEach((material) => {
       if (material.name.startsWith("ifc-material-")) {
@@ -239,8 +267,12 @@ export function buildIfcModel(model: RawIfcModel, scene: Scene, options: SceneBu
       }
     });
     if (opts.verbose) {
-      console.log(`  IFC meshes and materials frozen for optimal performance`);
+      logInfo(`  IFC meshes and materials frozen for optimal performance`, { modelID: model.modelID });
     }
+  }
+
+  if (opts.releaseRawPartsAfterBuild) {
+    model.parts = [];
   }
 
   return {
@@ -267,11 +299,11 @@ export function disposeIfcModel(scene: Scene): void {
   const rootNode = scene.getTransformNodeByName("ifc-root");
   if (rootNode) {
     rootNode.dispose();
-    console.log(`✓ ifc-root node and all child meshes disposed`);
+    logInfo(`ifc-root node and all child meshes disposed`);
   }
 
   if (materialCount > 0) {
-    console.log(`✓ ${materialCount} IFC materials disposed`);
+    logInfo(`${materialCount} IFC materials disposed`);
   }
 }
 
@@ -344,9 +376,7 @@ export function centerModelAtOrigin(meshes: AbstractMesh[], rootNode?: Transform
     });
   }
 
-  console.log(
-    `📍 Model centered at origin, offset: (${offset.x.toFixed(2)}, ${offset.y.toFixed(2)}, ${offset.z.toFixed(2)})`,
-  );
+  logInfo(`Model centered at origin, offset: (${offset.x.toFixed(2)}, ${offset.y.toFixed(2)}, ${offset.z.toFixed(2)})`);
 
   return offset;
 }
@@ -377,17 +407,19 @@ function createMeshFromPart(
 
   // Check if normals need to be generated
   let normals = part.normals;
-  if (options.generateNormals && normals.every((v) => v === 0)) {
+  const hasInvalidNormalLength = normals.length !== part.positions.length;
+  const shouldGenerateNormals = (options.generateNormals && areAllNormalsZero(normals)) || hasInvalidNormalLength;
+  if (shouldGenerateNormals) {
     const tempNormals: number[] = [];
-    VertexData.ComputeNormals(Array.from(part.positions), Array.from(part.indices), tempNormals);
+    VertexData.ComputeNormals(part.positions, part.indices, tempNormals);
     normals = new Float32Array(tempNormals);
   }
 
   // Apply vertex data
   const vertexData = new VertexData();
-  vertexData.positions = Array.from(part.positions);
-  vertexData.normals = Array.from(normals);
-  vertexData.indices = Array.from(part.indices);
+  vertexData.positions = part.positions;
+  vertexData.normals = normals;
+  vertexData.indices = part.indices;
   vertexData.applyToMesh(mesh);
 
   // Apply transformation
@@ -403,6 +435,42 @@ function createMeshFromPart(
     colorId: part.colorId,
     color: part.color,
   };
+}
+
+function areAllNormalsZero(normals: Float32Array): boolean {
+  for (let i = 0; i < normals.length; i++) {
+    if (normals[i] !== 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function validateRawPart(part: RawGeometryPart): string | null {
+  const vertexCount = part.positions.length / 3;
+
+  if (part.positions.length === 0 || part.positions.length % 3 !== 0) {
+    return "positions must be a non-empty Float32Array with length divisible by 3";
+  }
+  if (part.indices.length === 0 || part.indices.length % 3 !== 0) {
+    return "indices must be a non-empty Uint32Array with length divisible by 3";
+  }
+  for (let i = 0; i < part.positions.length; i++) {
+    if (!Number.isFinite(part.positions[i])) {
+      return `positions contains non-finite value at index ${i}`;
+    }
+  }
+  for (let i = 0; i < part.normals.length; i++) {
+    if (!Number.isFinite(part.normals[i])) {
+      return `normals contains non-finite value at index ${i}`;
+    }
+  }
+  for (let i = 0; i < part.indices.length; i++) {
+    if (part.indices[i] >= vertexCount) {
+      return `indices contains out-of-range vertex index ${part.indices[i]} (vertexCount=${vertexCount})`;
+    }
+  }
+  return null;
 }
 
 /**
@@ -432,50 +500,72 @@ function getMaterial(
   colorId: number,
   color: { x: number; y: number; z: number; w: number } | null,
   scene: Scene,
-  materialCache: Map<number, StandardMaterial>,
+  materialCache: Map<number, StandardMaterial | PBRMaterial>,
   materialZOffset: number,
   options: SceneBuildOptions,
-): StandardMaterial {
+): StandardMaterial | PBRMaterial {
   if (materialCache.has(colorId)) {
     return materialCache.get(colorId)!;
   }
 
-  const material = new StandardMaterial(`ifc-material-${colorId}`, scene);
+  let material: StandardMaterial | PBRMaterial;
 
-  if (color) {
-    material.diffuseColor = new Color3(color.x, color.y, color.z);
-    material.alpha = color.w;
+  if (options.usePBRMaterials) {
+    // Create PBR material
+    const pbrMaterial = new PBRMaterial(`ifc-material-${colorId}`, scene);
+
+    if (color) {
+      pbrMaterial.albedoColor = new Color3(color.x, color.y, color.z);
+      pbrMaterial.alpha = color.w;
+    } else {
+      // Default gray color
+      pbrMaterial.albedoColor = new Color3(
+        DEFAULT_IFC_MATERIAL_GRAY,
+        DEFAULT_IFC_MATERIAL_GRAY,
+        DEFAULT_IFC_MATERIAL_GRAY,
+      );
+    }
+
+    // Set PBR-specific properties for non-metallic surfaces (typical for building materials)
+    pbrMaterial.metallic = DEFAULT_PBR_METALLIC;
+    pbrMaterial.roughness = DEFAULT_PBR_ROUGHNESS;
+
+    // Add z-offset to prevent z-fighting
+    pbrMaterial.zOffset = materialZOffset;
+
+    // Set backface culling based on options
+    pbrMaterial.backFaceCulling = !options.doubleSided;
+
+    material = pbrMaterial;
   } else {
-    // Default gray color
-    material.diffuseColor = new Color3(0.8, 0.8, 0.8);
+    // Create Standard material (default)
+    const standardMaterial = new StandardMaterial(`ifc-material-${colorId}`, scene);
+
+    if (color) {
+      standardMaterial.diffuseColor = new Color3(color.x, color.y, color.z);
+      standardMaterial.alpha = color.w;
+    } else {
+      // Default gray color
+      standardMaterial.diffuseColor = new Color3(
+        DEFAULT_IFC_MATERIAL_GRAY,
+        DEFAULT_IFC_MATERIAL_GRAY,
+        DEFAULT_IFC_MATERIAL_GRAY,
+      );
+    }
+
+    // Add z-offset to prevent z-fighting
+    standardMaterial.zOffset = materialZOffset;
+
+    // Set backface culling based on options
+    standardMaterial.backFaceCulling = !options.doubleSided;
+
+    material = standardMaterial;
   }
 
-  // Add z-offset to prevent z-fighting
-  material.zOffset = materialZOffset;
-
-  // Set backface culling based on options
-  material.backFaceCulling = !options.doubleSided;
+  material.metadata = {
+    color: color ? { r: color.x, g: color.y, b: color.z, a: color.w } : null,
+  } satisfies IfcMaterialMetadata;
 
   materialCache.set(colorId, material);
   return material;
-}
-
-/**
- * Check if meshes can be safely merged based on spatial context
- */
-function canMergeMeshes(meshes: Mesh[], storeyMap: Map<number, number>): boolean {
-  const storeyIDs = new Set<number>();
-
-  meshes.forEach((mesh) => {
-    const expressID = mesh.metadata?.expressID;
-    if (expressID !== undefined) {
-      const storeyID = storeyMap.get(expressID);
-      if (storeyID) {
-        storeyIDs.add(storeyID);
-      }
-    }
-  });
-
-  // Allow merge ONLY if all parts belong to same storey OR no storey assignment
-  return storeyIDs.size <= 1;
 }

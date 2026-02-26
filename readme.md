@@ -46,6 +46,7 @@ After running `npm run dev`, open:
 - **Drag & Drop:** Drop `.ifc` files onto the canvas to load them
 - **Element Picking:** Click on elements to view metadata and highlight them
 - **Intelligent Merging:** Automatically merges meshes with same material while preserving metadata
+- **Structured Logging:** Typed logging helpers with optional IFC context (`modelID`, `expressID`, `geometryExpressID`)
 - **Camera Framing:** Automatically positions camera to view the entire model
 - **Inspector:** Built-in Babylon.js Inspector for debugging
 - **Keyboard Shortcuts:** Ctrl+I (or Cmd+I on Mac) toggles the inspector, works across all keyboard layouts
@@ -59,23 +60,31 @@ The codebase follows a strict layered architecture with clear separation of conc
 
 All web-ifc interaction. **Zero Babylon.js dependencies.**
 
-- `initializeWebIFC(wasmPath?, logLevel?)` — initialize web-ifc API
-- `loadIfcModel(ifcAPI, source, options?)` — load and extract raw geometry data
-- `closeIfcModel(ifcAPI, modelID)` — free IFC model memory
-- `getProjectInfo(ifcAPI, modelID)` — extract project metadata
+- `initializeWebIFC(wasmPath?, logLevel?)` - initialize web-ifc API
+- `loadIfcModel(ifcAPI, source, options?)` - load and extract raw geometry data
+- `closeIfcModel(ifcAPI, modelID)` - free IFC model memory
+- `getProjectInfo(ifcAPI, modelID)` - extract project metadata
 
 ### Rendering Layer (`src/ifcModel.ts`)
 
 All Babylon.js scene construction. **Zero web-ifc dependencies.**
 
-- `buildIfcModel(model, scene, options?)` — create meshes, materials, merge, center
-- `disposeIfcModel(scene)` — dispose all IFC meshes and materials
-- `getModelBounds(meshes)` — calculate bounding box
-- `centerModelAtOrigin(meshes, rootNode?)` — center model at origin
+- `buildIfcModel(model, scene, options?)` - create meshes, materials, merge, center
+- `disposeIfcModel(scene)` - dispose all IFC meshes and materials
+- `getModelBounds(meshes)` - calculate bounding box
+- `centerModelAtOrigin(meshes, rootNode?)` - center model at origin
 
 ### Application Layer
 
-- `src/main.ts` — uses low-level two-step API (ifcInit + ifcModel)
+- `src/main.ts` - uses low-level two-step API (ifcInit + ifcModel)
+
+### Shared Utilities (`src/logging.ts`)
+
+Structured logging helpers used across IFC loading and rendering:
+
+- `logInfo(message, context?)`
+- `logWarn(message, context?, detail?)`
+- `logError(message, context?, detail?)`
 
 ## Usage
 
@@ -185,6 +194,8 @@ The project uses [Vitest](https://vitest.dev/) for unit testing with the followi
 | `getProjectInfo.test.ts`   | Tests for project metadata extraction |
 | `buildIfcModel.test.ts`    | Tests for Babylon.js scene building   |
 | `zOffset.test.ts`          | Tests for z-offset material handling  |
+| `buildIfcModel.perf.test.ts` | Perf regression tests for synthetic large models |
+| `logging.test.ts`          | Unit tests for structured logging helpers |
 
 ### Running Tests
 
@@ -222,22 +233,22 @@ describe("myFunction", () => {
 
 ```
 src/
-├── main.ts          — app entry (two-step API: ifcInit + ifcModel)
-├── ifcInit.ts       — IFC data layer (web-ifc only)
-├── ifcModel.ts      — rendering layer (Babylon.js only)
-├── style.css        — basic styling
-└── __tests__/       — unit tests
+|-- main.ts          - app entry (two-step API: ifcInit + ifcModel)
+|-- ifcInit.ts       - IFC data layer (web-ifc only)
+|-- ifcModel.ts      - rendering layer (Babylon.js only)
+|-- style.css        - basic styling
+`-- __tests__/       - unit tests
 
 public/
-├── test.ifc         — sample IFC file loaded at startup
-├── example.ifc      — additional sample
-└── bplogo.svg       — asset
+|-- test.ifc         - sample IFC file loaded at startup
+|-- example.ifc      - additional sample
+`-- bplogo.svg       - asset
 
 Root
-├── index.html       — HTML entry
-├── vite.config.ts   — copies web-ifc.wasm to dist/, sets WASM handling
-├── tsconfig.json    — TypeScript config
-└── package.json     — scripts and deps
+|-- index.html       - HTML entry
+|-- vite.config.ts   - copies web-ifc.wasm to dist/, sets WASM handling
+|-- tsconfig.json    - TypeScript config
+`-- package.json     - scripts and deps
 ```
 
 ## Picking and Highlighting
@@ -249,8 +260,9 @@ Root
 ## Materials, Merging, and Performance
 
 - Materials are `StandardMaterial` per unique RGBA color, configurable `backFaceCulling`, incremental `zOffset` to mitigate z-fighting
-- Meshes are merged per (expressID + color) when safe; safety check prevents merging across different storeys using spatial relations
+- Meshes are merged per (expressID + color)
 - Metadata (`expressID`, `modelID`) preserved on merged meshes
+- Material metadata includes source color as `material.metadata.color` with `{ r, g, b, a }` (or `null`)
 - Stats for counts, triangles, materials, and build time are computed
 
 ### Custom Merging Strategy
@@ -308,3 +320,9 @@ for (const mesh of meshes) {
 ## License
 
 Apache-2.0 - See [LICENSE](./LICENSE) for details.
+
+## Changelog
+
+See [CHANGELOG.md](./CHANGELOG.md) for release notes and recent changes.
+
+
