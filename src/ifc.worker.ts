@@ -157,19 +157,21 @@ function collectModelTransferables(model: Awaited<ReturnType<typeof loadIfcModel
   return transferables;
 }
 
-function collectPreparedTransferables(model: PreparedIfcModel): Transferable[] {
+function collectPreparedTransferables(model: PreparedIfcModel): { transferables: Transferable[]; bytes: number } {
   const transferables: Transferable[] = [];
   const visited = new Set<ArrayBuffer>();
+  let bytes = 0;
   for (const mesh of model.meshes) {
     const buffers = [mesh.positions.buffer, mesh.normals.buffer, mesh.indices.buffer];
     for (const buffer of buffers) {
       if (buffer instanceof ArrayBuffer && !visited.has(buffer)) {
         visited.add(buffer);
+        bytes += buffer.byteLength;
         transferables.push(buffer);
       }
     }
   }
-  return transferables;
+  return { transferables, bytes };
 }
 
 self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
@@ -259,6 +261,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
           modelID: prepared.modelID,
           preparedMeshCount: prepared.meshes.length,
           mergeMode: prepared.mergeMode,
+          tier: prepared.telemetry.tier,
         });
         if (!message.keepModelOpen) {
           closeIfcModel(api, model.modelID);
@@ -271,6 +274,14 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
             closedModelID: model.modelID,
           });
         }
+        const transferStats = collectPreparedTransferables(prepared);
+        prepared = {
+          ...prepared,
+          telemetry: {
+            ...prepared.telemetry,
+            transferBytes: transferStats.bytes + prepared.telemetry.elementMapBytes,
+          },
+        };
         workerLog("geometry prepared", {
           id: message.id,
           modelID: prepared.modelID,
@@ -278,10 +289,15 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
           mergedGroupCount: prepared.mergedGroupCount,
           invalidPartCount: prepared.invalidPartCount,
           mergeMode: prepared.mergeMode,
+          tier: prepared.telemetry.tier,
+          opaqueMeshCount: prepared.telemetry.opaqueMeshCount,
+          transparentMeshCount: prepared.telemetry.transparentMeshCount,
+          elementRangeCount: prepared.telemetry.elementRangeCount,
+          transferBytes: prepared.telemetry.transferBytes,
           preparationMs: (performance.now() - preparationStart).toFixed(2),
           elapsedMs: (performance.now() - requestStart).toFixed(2),
         });
-        postSuccess(message.id, prepared, collectPreparedTransferables(prepared));
+        postSuccess(message.id, prepared, transferStats.transferables);
         return;
       }
       case "closeModel": {

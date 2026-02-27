@@ -14,10 +14,12 @@ export { prepareIfcModelGeometry } from "./ifcModelPreparation";
 export type {
   AutoMergeStrategy,
   GeometryMergeMode,
+  GeometryPreparationTier,
   GeometryPreparationOptions,
   PreparedIfcElementRange,
   PreparedIfcModel,
   PreparedIfcMeshData,
+  PreparedIfcTelemetry,
 } from "./ifcModelPreparation";
 
 // Rendering Layer (Babylon.js only, zero web-ifc dependencies)

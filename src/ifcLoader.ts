@@ -8,6 +8,7 @@ import type { GeometryPreparationOptions, PreparedIfcModel } from "./ifcModelPre
 
 export interface LoadPreparedIfcModelOptions extends IfcWorkerLoadOptions {
   keepModelOpen?: boolean;
+  renderOnly?: boolean;
 }
 
 export interface IfcLoader {
@@ -45,10 +46,19 @@ class MainThreadIfcLoader implements IfcLoader {
     options: LoadPreparedIfcModelOptions = {},
     prepareOptions: GeometryPreparationOptions = {},
   ): Promise<PreparedIfcModel> {
-    const { keepModelOpen = true, onProgress: _onProgress, ...ifcOptions } = options;
+    const { keepModelOpen = true, renderOnly = false, onProgress: _onProgress, ...ifcOptions } = options;
+    const effectiveKeepModelOpen = renderOnly ? false : keepModelOpen;
+    const effectivePrepareOptions = renderOnly
+      ? {
+          ...prepareOptions,
+          mergeMode: "two-material" as const,
+          includeElementMap: false,
+          profile: "renderOnly" as const,
+        }
+      : prepareOptions;
     const model = await this.loadIfcModel(source, ifcOptions);
-    const prepared = prepareIfcModelGeometry(model, { ...prepareOptions, signal: ifcOptions.signal });
-    if (!keepModelOpen) {
+    const prepared = prepareIfcModelGeometry(model, { ...effectivePrepareOptions, signal: ifcOptions.signal });
+    if (!effectiveKeepModelOpen) {
       closeIfcModel(this.ensureIfcAPI(), model.modelID);
       return { ...prepared, modelID: -1 };
     }

@@ -6,24 +6,24 @@
     <title>IFC Speed Test</title>
     <style>
       :root {
-        color-scheme: light;
-        --bg: #f5f7fb;
-        --panel: #ffffff;
-        --text: #102030;
-        --muted: #4a5a6a;
-        --accent: #0b6ef3;
-        --border: #dce3ec;
+        color-scheme: dark;
+        --bg: #0c1118;
+        --panel: #111a25;
+        --text: #e4edf8;
+        --muted: #9ab0c7;
+        --accent: #3ea9ff;
+        --border: #2b3b4f;
       }
 
       body {
         margin: 0;
         font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-        background: linear-gradient(180deg, #eef4ff 0%, var(--bg) 45%);
+        background: radial-gradient(circle at top, #1c2839 0%, var(--bg) 60%);
         color: var(--text);
       }
 
       .layout {
-        max-width: 980px;
+        max-width: 1800px;
         margin: 24px auto;
         padding: 0 16px;
       }
@@ -33,6 +33,7 @@
         border: 1px solid var(--border);
         border-radius: 12px;
         padding: 16px;
+        box-shadow: 0 14px 34px rgba(0, 0, 0, 0.35);
       }
 
       .controls {
@@ -54,7 +55,7 @@
         border: none;
         border-radius: 8px;
         background: var(--accent);
-        color: #fff;
+        color: #04111d;
         padding: 0 14px;
         cursor: pointer;
         font-weight: 600;
@@ -65,19 +66,31 @@
         cursor: not-allowed;
       }
 
+      button:not(:disabled):hover {
+        filter: brightness(1.05);
+      }
+
       input[type="number"],
       input[type="file"] {
         font: inherit;
+        color: var(--text);
+        background: #0a131d;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 8px 10px;
       }
 
       pre {
         margin-top: 16px;
-        background: #0f1720;
-        color: #c8d8ee;
+        background: #0a131d;
+        color: #cfe0f5;
+        border: 1px solid var(--border);
         border-radius: 10px;
         padding: 14px;
         min-height: 240px;
-        overflow: auto;
+        overflow-x: auto;
+        overflow-y: auto;
+        white-space: pre;
       }
 
       .hint {
@@ -90,7 +103,7 @@
     <div class="layout">
       <div class="panel">
         <h2>IFC Speed Test</h2>
-        <p class="hint">Compares loading/build speed with worker enabled vs disabled.</p>
+        <p class="hint">Benchmarks merge modes: by-express-color, by-color, and two-material (worker path).</p>
         <div class="controls">
           <div class="control">
             <label for="iterations">Iterations</label>
@@ -108,4 +121,3 @@
     <script type="module" src="/test-speed/main.ts"></script>
   </body>
 </html>
-

@@ -275,6 +275,9 @@ const loadIfc = async (scene: Scene, source: string | File) => {
 
   console.log(`\nIFC loaded successfully`);
   console.log(`  ${meshes.length} meshes`);
+  console.log(
+    `  mode=${model.mergeMode}, tier=${model.telemetry.tier}, opaque=${model.telemetry.opaqueMeshCount}, transparent=${model.telemetry.transparentMeshCount}, mapBytes=${model.telemetry.elementMapBytes}, transferBytes=${model.telemetry.transferBytes}`,
+  );
 
   return { meshes, rootNode, modelID: model.modelID, stats };
 };

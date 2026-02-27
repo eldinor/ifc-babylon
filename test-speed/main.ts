@@ -3,21 +3,30 @@ import { NullEngine, Scene } from "@babylonjs/core";
 import { createIfcLoader, buildIfcModel, disposeIfcModel } from "../src/index";
 
 type IfcSource = string | File;
-type BenchMode = "worker" | "main-thread";
+type MergeMode = "by-express-color" | "by-color" | "two-material";
+type Backend = "worker" | "main-thread";
 
 interface BenchResult {
-  mode: BenchMode;
+  backend: Backend;
+  mergeMode: MergeMode;
   initMs: number;
   medianLoadMs: number;
   medianBuildMs: number;
-  coldStartTotalMs: number;
-  steadyStateTotalMs: number;
+  medianTotalMs: number;
+  medianMeshCount: number;
+  medianMaterialCount: number;
+  medianMemoryBytes: number;
+  medianTransferBytes: number;
+  medianMapBytes: number;
+  medianOpaqueMeshCount: number;
+  medianTransparentMeshCount: number;
 }
 
 const output = document.getElementById("output") as HTMLPreElement;
 const runButton = document.getElementById("run-btn") as HTMLButtonElement;
 const iterationsInput = document.getElementById("iterations") as HTMLInputElement;
 const fileInput = document.getElementById("ifc-file") as HTMLInputElement;
+const MODES: MergeMode[] = ["by-express-color", "by-color", "two-material"];
 
 function logLine(line: string): void {
   output.textContent += `${line}\n`;
@@ -26,6 +35,32 @@ function logLine(line: string): void {
 function median(values: number[]): number {
   const sorted = [...values].sort((a, b) => a - b);
   return sorted[Math.floor(sorted.length / 2)];
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes.toFixed(0)} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function pad(value: string, width: number): string {
+  if (value.length >= width) return value;
+  return value + " ".repeat(width - value.length);
+}
+
+function renderTable(headers: string[], rows: string[][]): string[] {
+  const widths = headers.map((header, index) => {
+    let max = header.length;
+    for (const row of rows) {
+      max = Math.max(max, row[index]?.length ?? 0);
+    }
+    return max;
+  });
+
+  const formatRow = (row: string[]) => `| ${row.map((cell, i) => pad(cell, widths[i])).join(" | ")} |`;
+  const separator = `|-${widths.map((width) => "-".repeat(width)).join("-|-")}-|`;
+
+  return [formatRow(headers), separator, ...rows.map((row) => formatRow(row))];
 }
 
 async function waitForSceneMeshCount(scene: Scene, expectedMeshCount: number, timeoutMs = 5000): Promise<void> {
@@ -56,9 +91,13 @@ async function initLoaderWithFallback(loader: ReturnType<typeof createIfcLoader>
   throw lastError;
 }
 
-async function benchmarkScenario(mode: BenchMode, source: IfcSource, iterations: number): Promise<BenchResult> {
-  const useWorker = mode !== "main-thread";
-  const loader = createIfcLoader({ useWorker });
+async function benchmarkMode(
+  backend: Backend,
+  mergeMode: MergeMode,
+  source: IfcSource,
+  iterations: number,
+): Promise<BenchResult> {
+  const loader = createIfcLoader({ useWorker: backend === "worker" });
   const engine = new NullEngine();
 
   const initStart = performance.now();
@@ -68,6 +107,13 @@ async function benchmarkScenario(mode: BenchMode, source: IfcSource, iterations:
   const loadTimes: number[] = [];
   const buildTimes: number[] = [];
   const totalTimes: number[] = [];
+  const meshCounts: number[] = [];
+  const materialCounts: number[] = [];
+  const memoryBytes: number[] = [];
+  const transferBytes: number[] = [];
+  const mapBytes: number[] = [];
+  const opaqueMeshCounts: number[] = [];
+  const transparentMeshCounts: number[] = [];
 
   try {
     for (let i = 0; i < iterations; i++) {
@@ -77,16 +123,23 @@ async function benchmarkScenario(mode: BenchMode, source: IfcSource, iterations:
       let modelID: number | null = null;
       try {
         const loadStart = performance.now();
-        const model = mode === "main-thread"
-          ? await loader.loadIfcModel(source, { coordinateToOrigin: true, verbose: false })
-          : await loader.loadPreparedIfcModel(
-              source,
-              { coordinateToOrigin: true, verbose: false },
-              { mergeMeshes: true, generateNormals: false },
-            );
+        const model = await loader.loadPreparedIfcModel(
+          source,
+          { coordinateToOrigin: true, verbose: false },
+          {
+            mergeMode,
+            generateNormals: false,
+            includeElementMap: true,
+          },
+        );
         const loadMs = performance.now() - loadStart;
         loadTimes.push(loadMs);
         modelID = model.modelID;
+        memoryBytes.push(model.telemetry.geometryBytes + model.telemetry.elementMapBytes);
+        transferBytes.push(model.telemetry.transferBytes);
+        mapBytes.push(model.telemetry.elementMapBytes);
+        opaqueMeshCounts.push(model.telemetry.opaqueMeshCount);
+        transparentMeshCounts.push(model.telemetry.transparentMeshCount);
 
         const buildStart = performance.now();
         const result = buildIfcModel(model, scene, {
@@ -101,6 +154,8 @@ async function benchmarkScenario(mode: BenchMode, source: IfcSource, iterations:
         await waitForSceneMeshCount(scene, result.meshes.length);
         const buildMs = performance.now() - buildStart;
         buildTimes.push(buildMs);
+        meshCounts.push(result.stats.finalMeshCount);
+        materialCounts.push(result.stats.materialCount);
       } finally {
         disposeIfcModel(scene);
         scene.dispose();
@@ -112,7 +167,7 @@ async function benchmarkScenario(mode: BenchMode, source: IfcSource, iterations:
       }
 
       totalTimes.push(performance.now() - runStart);
-      logLine(`  ${mode} run ${i + 1}/${iterations} complete`);
+      logLine(`  ${mergeMode} run ${i + 1}/${iterations} complete`);
     }
   } finally {
     await loader.dispose();
@@ -120,12 +175,19 @@ async function benchmarkScenario(mode: BenchMode, source: IfcSource, iterations:
   }
 
   return {
-    mode,
+    backend,
+    mergeMode,
     initMs,
     medianLoadMs: median(loadTimes),
     medianBuildMs: median(buildTimes),
-    coldStartTotalMs: initMs + (totalTimes[0] ?? 0),
-    steadyStateTotalMs: median(totalTimes.length > 1 ? totalTimes.slice(1) : totalTimes),
+    medianTotalMs: median(totalTimes),
+    medianMeshCount: median(meshCounts),
+    medianMaterialCount: median(materialCounts),
+    medianMemoryBytes: median(memoryBytes),
+    medianTransferBytes: median(transferBytes),
+    medianMapBytes: median(mapBytes),
+    medianOpaqueMeshCount: median(opaqueMeshCounts),
+    medianTransparentMeshCount: median(transparentMeshCounts),
   };
 }
 
@@ -136,32 +198,76 @@ async function run(): Promise<void> {
   const iterations = Math.max(1, Math.min(10, Number(iterationsInput.value) || 3));
   const file = fileInput.files?.[0] ?? null;
   const source: IfcSource = file ?? "/test.ifc";
-  const sourceLabel = file ? `${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)` : "/test.ifc";
+  const fileName = file ? file.name : "/test.ifc";
+  const fileSizeLabel = file ? formatBytes(file.size) : "N/A (URL)";
+  const backends: Backend[] = ["main-thread", "worker"];
 
   try {
-    logLine(`Source: ${sourceLabel}`);
+    logLine(`Source: ${fileName}`);
+    logLine(`File size: ${fileSizeLabel}`);
     logLine(`Iterations: ${iterations}`);
+    logLine(`Benchmark backend: main-thread + worker`);
     logLine("");
 
-    logLine("Running main-thread benchmark...");
-    const mainThread = await benchmarkScenario("main-thread", source, iterations);
-    logLine("");
+    const results: BenchResult[] = [];
+    for (const backend of backends) {
+      for (const mergeMode of MODES) {
+        logLine(`Running ${backend} / ${mergeMode} benchmark...`);
+        const result = await benchmarkMode(backend, mergeMode, source, iterations);
+        results.push(result);
+        logLine("");
+      }
+    }
+    const mainThreadByMode = new Map<MergeMode, BenchResult>();
+    for (const result of results) {
+      if (result.backend === "main-thread" && !mainThreadByMode.has(result.mergeMode)) {
+        mainThreadByMode.set(result.mergeMode, result);
+      }
+    }
 
-    logLine("Running worker benchmark...");
-    const worker = await benchmarkScenario("worker", source, iterations);
-    logLine("");
-
-    const coldSpeedup = mainThread.coldStartTotalMs / worker.coldStartTotalMs;
-    const steadyStateSpeedup = mainThread.steadyStateTotalMs / worker.steadyStateTotalMs;
+    const headers = [
+      "filename",
+      "filesize",
+      "backend",
+      "mode",
+      "load ms",
+      "build ms",
+      "total ms",
+      "meshes",
+      "materials",
+      "memory",
+      "transfer",
+      "map",
+      "opaque",
+      "transparent",
+      "speedup vs main",
+    ];
+    const rows = results.map((result) => {
+      const modeBaseline = mainThreadByMode.get(result.mergeMode) ?? result;
+      const relativeSpeed = modeBaseline.medianTotalMs / result.medianTotalMs;
+      return [
+        fileName,
+        fileSizeLabel,
+        result.backend,
+        result.mergeMode,
+        result.medianLoadMs.toFixed(2),
+        result.medianBuildMs.toFixed(2),
+        result.medianTotalMs.toFixed(2),
+        result.medianMeshCount.toFixed(0),
+        result.medianMaterialCount.toFixed(0),
+        formatBytes(result.medianMemoryBytes),
+        formatBytes(result.medianTransferBytes),
+        formatBytes(result.medianMapBytes),
+        result.medianOpaqueMeshCount.toFixed(0),
+        result.medianTransparentMeshCount.toFixed(0),
+        `${relativeSpeed.toFixed(2)}x`,
+      ];
+    });
     logLine("Results (median):");
-    logLine(
-      `- main-thread: init=${mainThread.initMs.toFixed(2)}ms, load=${mainThread.medianLoadMs.toFixed(2)}ms, build=${mainThread.medianBuildMs.toFixed(2)}ms, cold_start_total=${mainThread.coldStartTotalMs.toFixed(2)}ms, steady_state_total=${mainThread.steadyStateTotalMs.toFixed(2)}ms`,
-    );
-    logLine(
-      `- worker:      init=${worker.initMs.toFixed(2)}ms, load=${worker.medianLoadMs.toFixed(2)}ms, build=${worker.medianBuildMs.toFixed(2)}ms, cold_start_total=${worker.coldStartTotalMs.toFixed(2)}ms, steady_state_total=${worker.steadyStateTotalMs.toFixed(2)}ms`,
-    );
-    logLine(`- speedup cold-start (main-thread / worker): ${coldSpeedup.toFixed(2)}x`);
-    logLine(`- speedup steady-state (main-thread / worker): ${steadyStateSpeedup.toFixed(2)}x`);
+    logLine("");
+    for (const line of renderTable(headers, rows)) {
+      logLine(line);
+    }
   } catch (error) {
     logLine("");
     logLine(`Benchmark failed: ${String(error)}`);

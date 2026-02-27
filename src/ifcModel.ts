@@ -76,7 +76,7 @@ interface IfcMaterialMetadata {
 export interface IfcPreparedMeshMetadata {
   modelID: number;
   expressID: number;
-  elementRanges: PreparedIfcElementRange[];
+  elementRanges?: PreparedIfcElementRange[];
 }
 
 // ============================================================================
@@ -552,7 +552,7 @@ function isPreparedMeshMetadata(metadata: unknown): metadata is IfcPreparedMeshM
   return (
     typeof value.modelID === "number" &&
     typeof value.expressID === "number" &&
-    Array.isArray(value.elementRanges)
+    (value.elementRanges === undefined || Array.isArray(value.elementRanges))
   );
 }
 
@@ -566,7 +566,11 @@ export function resolveExpressIDFromMeshPick(mesh: AbstractMesh, faceId: number 
   if (typeof faceId !== "number" || faceId < 0) {
     return null;
   }
-  return resolveExpressIDFromRanges(mesh.metadata.elementRanges, faceId);
+  const ranges = mesh.metadata.elementRanges;
+  if (!ranges || ranges.length === 0) {
+    return null;
+  }
+  return resolveExpressIDFromRanges(ranges, faceId);
 }
 
 function resolveExpressIDFromRanges(ranges: PreparedIfcElementRange[], faceId: number): number | null {

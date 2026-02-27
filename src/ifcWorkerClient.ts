@@ -92,6 +92,7 @@ export interface IfcWorkerLoadOptions extends Omit<IfcInitOptions, "signal"> {
 
 export interface LoadPreparedIfcModelOptions extends IfcWorkerLoadOptions {
   keepModelOpen?: boolean;
+  renderOnly?: boolean;
 }
 
 export interface ElementDataResult {
@@ -200,8 +201,17 @@ export class IfcWorkerClient {
       typeof source === "string"
         ? { kind: "url", url: source }
         : { kind: "file", name: source.name, data: await source.arrayBuffer() };
-    const { signal, onProgress, keepModelOpen = true, ...workerOptions } = options;
-    const { signal: _prepareSignal, ...workerPrepareOptions } = prepareOptions;
+    const { signal, onProgress, keepModelOpen = true, renderOnly = false, ...workerOptions } = options;
+    const { signal: _prepareSignal, ...basePrepareOptions } = prepareOptions;
+    const workerPrepareOptions = renderOnly
+      ? {
+          ...basePrepareOptions,
+          mergeMode: "two-material" as const,
+          includeElementMap: false,
+          profile: "renderOnly" as const,
+        }
+      : basePrepareOptions;
+    const effectiveKeepModelOpen = renderOnly ? false : keepModelOpen;
 
     const transferables: Transferable[] = [];
     if (workerSource.kind === "file") {
@@ -215,7 +225,7 @@ export class IfcWorkerClient {
         source: workerSource,
         options: workerOptions,
         prepareOptions: workerPrepareOptions,
-        keepModelOpen,
+        keepModelOpen: effectiveKeepModelOpen,
       },
       transferables,
       { signal, onProgress },
