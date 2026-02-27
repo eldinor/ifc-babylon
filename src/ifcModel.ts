@@ -11,6 +11,7 @@ import {
   PBRMaterial,
 } from "@babylonjs/core";
 import type { RawIfcModel, RawGeometryPart } from "./ifcInit";
+import type { PreparedIfcModel, PreparedIfcMeshData } from "./ifcModelPreparation";
 import { logInfo, logWarn } from "./logging";
 
 // ============================================================================
@@ -79,7 +80,11 @@ interface IfcMaterialMetadata {
 /**
  * Build a Babylon.js scene from raw IFC model data
  */
-export function buildIfcModel(model: RawIfcModel, scene: Scene, options: SceneBuildOptions = {}): SceneBuildResult {
+export function buildIfcModel(
+  model: RawIfcModel | PreparedIfcModel,
+  scene: Scene,
+  options: SceneBuildOptions = {},
+): SceneBuildResult {
   const startTime = performance.now();
 
   const opts: SceneBuildOptions = {
@@ -95,7 +100,8 @@ export function buildIfcModel(model: RawIfcModel, scene: Scene, options: SceneBu
   };
 
   if (opts.verbose) {
-    logInfo(`\nBuilding Babylon.js scene from ${model.parts.length} raw parts...`, { modelID: model.modelID });
+    const inputPartCount = isPreparedIfcModel(model) ? model.sourcePartCount : model.parts.length;
+    logInfo(`\nBuilding Babylon.js scene from ${inputPartCount} raw parts...`, { modelID: model.modelID });
   }
 
   /*
@@ -111,6 +117,65 @@ export function buildIfcModel(model: RawIfcModel, scene: Scene, options: SceneBu
 
   // Create root transform node (without scaling yet)
   const rootNode = new TransformNode("ifc-root", scene);
+
+  if (isPreparedIfcModel(model)) {
+    const materialCache = new Map<number, StandardMaterial | PBRMaterial>();
+    const finalMeshes: AbstractMesh[] = [];
+    let materialZOffset = 0;
+
+    for (const prepared of model.meshes) {
+      const mesh = createMeshFromPreparedData(prepared, model.modelID, scene, rootNode);
+      const material = getMaterial(prepared.colorId, prepared.color, scene, materialCache, materialZOffset, opts);
+      materialZOffset = (materialZOffset + MATERIAL_Z_OFFSET_STEP) % MATERIAL_Z_OFFSET_WRAP;
+      mesh.name = `ifc-${prepared.expressID}`;
+      mesh.material = material;
+      finalMeshes.push(mesh);
+    }
+
+    rootNode.scaling.z = -1;
+    rootNode.computeWorldMatrix(true);
+
+    if (opts.autoCenter) {
+      const bounds = getModelBounds(finalMeshes);
+      if (bounds) {
+        const centerOffset = bounds.center;
+        rootNode.position.subtractInPlace(centerOffset);
+        if (opts.verbose) {
+          logInfo(
+            `  Model auto-centered at origin (offset: ${centerOffset.x.toFixed(2)}, ${centerOffset.y.toFixed(2)}, ${centerOffset.z.toFixed(2)})`,
+            { modelID: model.modelID },
+          );
+        }
+      }
+    }
+
+    const buildTimeMs = performance.now() - startTime;
+    const stats: BuildStats = {
+      originalPartCount: model.sourcePartCount,
+      finalMeshCount: finalMeshes.length,
+      mergedGroupCount: model.mergedGroupCount,
+      skippedGroupCount: 0,
+      materialCount: materialCache.size,
+      buildTimeMs,
+    };
+
+    if (opts.freezeAfterBuild) {
+      rootNode.getChildMeshes().forEach((mesh) => {
+        mesh.freezeWorldMatrix();
+      });
+      scene.materials.forEach((material) => {
+        if (material.name.startsWith("ifc-material-")) {
+          material.freeze();
+        }
+      });
+    }
+
+    return {
+      meshes: finalMeshes,
+      rootNode,
+      stats,
+    };
+  }
 
   // Validate and create meshes from raw parts
   let invalidPartCount = 0;
@@ -435,6 +500,33 @@ function createMeshFromPart(
     colorId: part.colorId,
     color: part.color,
   };
+}
+
+function createMeshFromPreparedData(
+  prepared: PreparedIfcMeshData,
+  modelID: number,
+  scene: Scene,
+  rootNode: TransformNode,
+): Mesh {
+  const meshName = `ifc-${prepared.expressID}`;
+  const mesh = new Mesh(meshName, scene);
+  mesh.parent = rootNode;
+  mesh.metadata = {
+    expressID: prepared.expressID,
+    modelID,
+  };
+
+  const vertexData = new VertexData();
+  vertexData.positions = prepared.positions;
+  vertexData.normals = prepared.normals;
+  vertexData.indices = prepared.indices;
+  vertexData.applyToMesh(mesh);
+  mesh.isVisible = true;
+  return mesh;
+}
+
+function isPreparedIfcModel(model: RawIfcModel | PreparedIfcModel): model is PreparedIfcModel {
+  return "meshes" in model && "sourcePartCount" in model;
 }
 
 function areAllNormalsZero(normals: Float32Array): boolean {

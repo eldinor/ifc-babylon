@@ -232,11 +232,18 @@ const loadIfc = async (scene: Scene, source: string | File) => {
 
   console.log(`\nLoading IFC file...`);
 
-  // Step 1: Load raw IFC model data (web-ifc only)
-  const model = await ifcWorker.loadIfcModel(source, {
-    coordinateToOrigin: true,
-    verbose: true,
-  });
+  // Step 1: Load and prepare IFC model geometry in worker
+  const model = await ifcWorker.loadPreparedIfcModel(
+    source,
+    {
+      coordinateToOrigin: true,
+      verbose: true,
+    },
+    {
+      mergeMeshes: true,
+      generateNormals: false,
+    },
+  );
 
   // Step 2: Build Babylon.js scene (Babylon only)
   const { meshes, rootNode, stats } = buildIfcModel(model, scene, {
@@ -250,7 +257,7 @@ const loadIfc = async (scene: Scene, source: string | File) => {
   });
 
   console.log(`\nIFC loaded successfully`);
-  console.log(`  ${meshes.length} meshes, ${model.rawStats.triangleCount.toLocaleString()} triangles`);
+  console.log(`  ${meshes.length} meshes`);
 
   return { meshes, rootNode, modelID: model.modelID, stats };
 };

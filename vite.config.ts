@@ -1,5 +1,6 @@
 import { defineConfig } from "vitest/config";
 import { viteStaticCopy } from "vite-plugin-static-copy";
+import { resolve } from "node:path";
 
 export default defineConfig({
   test: {
@@ -33,5 +34,13 @@ export default defineConfig({
   build: {
     outDir: "dist",
     emptyOutDir: true,
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, "index.html"),
+        "test-npm/index": resolve(__dirname, "test-npm/index.html"),
+        "test-speed/index": resolve(__dirname, "test-speed/index.html"),
+        "test-null/index": resolve(__dirname, "test-null/index.html"),
+      },
+    },
   },
 });

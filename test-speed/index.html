@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>IFC Speed Test</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f5f7fb;
+        --panel: #ffffff;
+        --text: #102030;
+        --muted: #4a5a6a;
+        --accent: #0b6ef3;
+        --border: #dce3ec;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background: linear-gradient(180deg, #eef4ff 0%, var(--bg) 45%);
+        color: var(--text);
+      }
+
+      .layout {
+        max-width: 980px;
+        margin: 24px auto;
+        padding: 0 16px;
+      }
+
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 16px;
+      }
+
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: end;
+      }
+
+      .control {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        min-width: 180px;
+      }
+
+      button {
+        height: 40px;
+        border: none;
+        border-radius: 8px;
+        background: var(--accent);
+        color: #fff;
+        padding: 0 14px;
+        cursor: pointer;
+        font-weight: 600;
+      }
+
+      button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+
+      input[type="number"],
+      input[type="file"] {
+        font: inherit;
+      }
+
+      pre {
+        margin-top: 16px;
+        background: #0f1720;
+        color: #c8d8ee;
+        border-radius: 10px;
+        padding: 14px;
+        min-height: 240px;
+        overflow: auto;
+      }
+
+      .hint {
+        margin: 0 0 12px 0;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="layout">
+      <div class="panel">
+        <h2>IFC Speed Test</h2>
+        <p class="hint">Compares loading/build speed with worker enabled vs disabled.</p>
+        <div class="controls">
+          <div class="control">
+            <label for="iterations">Iterations</label>
+            <input id="iterations" type="number" min="1" max="10" value="3" />
+          </div>
+          <div class="control">
+            <label for="ifc-file">IFC file (optional)</label>
+            <input id="ifc-file" type="file" accept=".ifc" />
+          </div>
+          <button id="run-btn">Run Benchmark</button>
+        </div>
+        <pre id="output"></pre>
+      </div>
+    </div>
+    <script type="module" src="/test-speed/main.ts"></script>
+  </body>
+</html>
+

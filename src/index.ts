@@ -10,6 +10,8 @@ export { createIfcLoader } from "./ifcLoader";
 export type { RawIfcModel, RawGeometryPart, IfcInitOptions, ProjectInfoResult } from "./ifcInit";
 export type { IfcLoader, CreateIfcLoaderOptions } from "./ifcLoader";
 export type { ElementDataResult } from "./ifcWorkerClient";
+export { prepareIfcModelGeometry } from "./ifcModelPreparation";
+export type { GeometryPreparationOptions, PreparedIfcModel, PreparedIfcMeshData } from "./ifcModelPreparation";
 
 // Rendering Layer (Babylon.js only, zero web-ifc dependencies)
 export { buildIfcModel, disposeIfcModel, getModelBounds, centerModelAtOrigin } from "./ifcModel";

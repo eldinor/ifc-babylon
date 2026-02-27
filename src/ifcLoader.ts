@@ -3,10 +3,17 @@ import { closeIfcModel, getProjectInfo, initializeWebIFC, loadIfcModel } from ".
 import type { IfcInitOptions, ProjectInfoResult, RawIfcModel } from "./ifcInit";
 import { IfcWorkerClient } from "./ifcWorkerClient";
 import type { ElementDataResult } from "./ifcWorkerClient";
+import { prepareIfcModelGeometry } from "./ifcModelPreparation";
+import type { GeometryPreparationOptions, PreparedIfcModel } from "./ifcModelPreparation";
 
 export interface IfcLoader {
   init(wasmPath?: string, logLevel?: WebIFC.LogLevel): Promise<void>;
   loadIfcModel(source: string | File, options?: Omit<IfcInitOptions, "signal">): Promise<RawIfcModel>;
+  loadPreparedIfcModel(
+    source: string | File,
+    options?: Omit<IfcInitOptions, "signal">,
+    prepareOptions?: GeometryPreparationOptions,
+  ): Promise<PreparedIfcModel>;
   closeIfcModel(modelID: number): Promise<void>;
   getProjectInfo(modelID: number): Promise<ProjectInfoResult>;
   getElementData(modelID: number, expressID: number): Promise<ElementDataResult>;
@@ -26,6 +33,15 @@ class MainThreadIfcLoader implements IfcLoader {
 
   async loadIfcModel(source: string | File, options: Omit<IfcInitOptions, "signal"> = {}): Promise<RawIfcModel> {
     return loadIfcModel(this.ensureIfcAPI(), source, options);
+  }
+
+  async loadPreparedIfcModel(
+    source: string | File,
+    options: Omit<IfcInitOptions, "signal"> = {},
+    prepareOptions: GeometryPreparationOptions = {},
+  ): Promise<PreparedIfcModel> {
+    const model = await this.loadIfcModel(source, options);
+    return prepareIfcModelGeometry(model, prepareOptions);
   }
 
   async closeIfcModel(modelID: number): Promise<void> {

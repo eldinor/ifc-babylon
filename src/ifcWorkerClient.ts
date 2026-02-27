@@ -1,5 +1,6 @@
 import * as WebIFC from "web-ifc";
 import type { IfcInitOptions, ProjectInfoResult, RawIfcModel } from "./ifcInit";
+import type { GeometryPreparationOptions, PreparedIfcModel } from "./ifcModelPreparation";
 
 type WorkerLoadSource =
   | { kind: "url"; url: string }
@@ -17,6 +18,13 @@ type WorkerRequest =
       id: number;
       source: WorkerLoadSource;
       options: Omit<IfcInitOptions, "signal">;
+    }
+  | {
+      type: "loadPrepared";
+      id: number;
+      source: WorkerLoadSource;
+      options: Omit<IfcInitOptions, "signal">;
+      prepareOptions: GeometryPreparationOptions;
     }
   | {
       type: "closeModel";
@@ -115,6 +123,33 @@ export class IfcWorkerClient {
         id: 0,
         source: workerSource,
         options,
+      },
+      transferables,
+    );
+  }
+
+  async loadPreparedIfcModel(
+    source: string | File,
+    options: Omit<IfcInitOptions, "signal"> = {},
+    prepareOptions: GeometryPreparationOptions = {},
+  ): Promise<PreparedIfcModel> {
+    const workerSource: WorkerLoadSource =
+      typeof source === "string"
+        ? { kind: "url", url: source }
+        : { kind: "file", name: source.name, data: await source.arrayBuffer() };
+
+    const transferables: Transferable[] = [];
+    if (workerSource.kind === "file") {
+      transferables.push(workerSource.data);
+    }
+
+    return this.request<PreparedIfcModel>(
+      {
+        type: "loadPrepared",
+        id: 0,
+        source: workerSource,
+        options,
+        prepareOptions,
       },
       transferables,
     );

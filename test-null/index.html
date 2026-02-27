@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Null Worker Build Test</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background: #f4f7fc;
+        color: #13253a;
+      }
+
+      .wrap {
+        max-width: 960px;
+        margin: 24px auto;
+        padding: 0 16px;
+      }
+
+      .card {
+        background: #fff;
+        border: 1px solid #dbe4ef;
+        border-radius: 12px;
+        padding: 16px;
+      }
+
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: end;
+      }
+
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      button {
+        height: 40px;
+        border: none;
+        border-radius: 8px;
+        background: #1267f0;
+        color: #fff;
+        padding: 0 14px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      pre {
+        margin-top: 16px;
+        min-height: 220px;
+        border-radius: 10px;
+        padding: 12px;
+        background: #0f1720;
+        color: #d8e3f1;
+        overflow: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <h2>NullEngine Worker Build Test</h2>
+        <div class="row">
+          <div class="field">
+            <label for="iterations">Iterations</label>
+            <input id="iterations" type="number" min="1" max="10" value="3" />
+          </div>
+          <div class="field">
+            <label for="ifc-file">IFC file (optional)</label>
+            <input id="ifc-file" type="file" accept=".ifc" />
+          </div>
+          <button id="run-btn">Run</button>
+        </div>
+        <pre id="output"></pre>
+      </div>
+    </div>
+    <script type="module" src="/test-null/main.ts"></script>
+  </body>
+</html>
+
