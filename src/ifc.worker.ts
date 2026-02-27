@@ -27,7 +27,7 @@ type WorkerRequest =
       id: number;
       source: WorkerLoadSource;
       options: Omit<IfcInitOptions, "signal">;
-      prepareOptions: GeometryPreparationOptions;
+      prepareOptions: Omit<GeometryPreparationOptions, "signal">;
       keepModelOpen: boolean;
     }
   | {
@@ -258,6 +258,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
         postProgress(message.id, "prepare-done", requestStart, {
           modelID: prepared.modelID,
           preparedMeshCount: prepared.meshes.length,
+          mergeMode: prepared.mergeMode,
         });
         if (!message.keepModelOpen) {
           closeIfcModel(api, model.modelID);
@@ -276,6 +277,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
           preparedMeshCount: prepared.meshes.length,
           mergedGroupCount: prepared.mergedGroupCount,
           invalidPartCount: prepared.invalidPartCount,
+          mergeMode: prepared.mergeMode,
           preparationMs: (performance.now() - preparationStart).toFixed(2),
           elapsedMs: (performance.now() - requestStart).toFixed(2),
         });

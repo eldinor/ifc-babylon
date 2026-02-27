@@ -24,7 +24,7 @@ type WorkerRequest =
       id: number;
       source: WorkerLoadSource;
       options: Omit<IfcInitOptions, "signal">;
-      prepareOptions: GeometryPreparationOptions;
+      prepareOptions: Omit<GeometryPreparationOptions, "signal">;
       keepModelOpen: boolean;
     }
   | {
@@ -201,6 +201,7 @@ export class IfcWorkerClient {
         ? { kind: "url", url: source }
         : { kind: "file", name: source.name, data: await source.arrayBuffer() };
     const { signal, onProgress, keepModelOpen = true, ...workerOptions } = options;
+    const { signal: _prepareSignal, ...workerPrepareOptions } = prepareOptions;
 
     const transferables: Transferable[] = [];
     if (workerSource.kind === "file") {
@@ -213,7 +214,7 @@ export class IfcWorkerClient {
         id: 0,
         source: workerSource,
         options: workerOptions,
-        prepareOptions,
+        prepareOptions: workerPrepareOptions,
         keepModelOpen,
       },
       transferables,

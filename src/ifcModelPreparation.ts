@@ -1,18 +1,39 @@
 import type { RawGeometryPart, RawIfcModel } from "./ifcInit";
 
+export type GeometryMergeMode = "none" | "by-express-color" | "by-color" | "two-material";
+
+export interface AutoMergeStrategy {
+  lowMaxParts: number;
+  mediumMaxParts: number;
+  lowMode?: Exclude<GeometryMergeMode, "none">; // default: by-express-color
+  mediumMode?: Exclude<GeometryMergeMode, "none">; // default: by-color
+  highMode?: Exclude<GeometryMergeMode, "none">; // default: two-material
+}
+
 export interface GeometryPreparationOptions {
-  mergeMeshes?: boolean; // default: true
+  mergeMeshes?: boolean; // legacy: false -> "none", true -> "by-express-color"
+  mergeMode?: GeometryMergeMode;
+  autoMergeStrategy?: AutoMergeStrategy;
   generateNormals?: boolean; // default: false
+  maxTrianglesPerMesh?: number;
+  maxVerticesPerMesh?: number;
   signal?: AbortSignal;
 }
 
-export interface PreparedIfcMeshData {
+export interface PreparedIfcElementRange {
+  triangleStart: number;
+  triangleCount: number;
   expressID: number;
+}
+
+export interface PreparedIfcMeshData {
+  expressID: number; // -1 means mesh contains multiple elements; use elementRanges for picking
   colorId: number;
   color: { x: number; y: number; z: number; w: number } | null;
   positions: Float32Array<ArrayBufferLike>;
   normals: Float32Array<ArrayBufferLike>;
   indices: Uint32Array<ArrayBufferLike>;
+  elementRanges: PreparedIfcElementRange[];
 }
 
 export interface PreparedIfcModel {
@@ -20,12 +41,19 @@ export interface PreparedIfcModel {
   sourcePartCount: number;
   invalidPartCount: number;
   mergedGroupCount: number;
+  mergeMode: GeometryMergeMode;
   meshes: PreparedIfcMeshData[];
 }
 
-interface InternalPreparedPart extends PreparedIfcMeshData {
+interface InternalPreparedPart extends Omit<PreparedIfcMeshData, "elementRanges"> {
   geometryExpressID: number;
+  isTransparent: boolean;
 }
+
+const PERFORMANCE_OPAQUE_COLOR_ID = -1001;
+const PERFORMANCE_TRANSPARENT_COLOR_ID = -1002;
+const PERFORMANCE_OPAQUE_COLOR = { x: 0.8, y: 0.8, z: 0.8, w: 1 };
+const PERFORMANCE_TRANSPARENT_COLOR = { x: 0.8, y: 0.8, z: 0.8, w: 0.35 };
 
 function createAbortError(): Error {
   if (typeof DOMException !== "undefined") {
@@ -194,7 +222,122 @@ function validateRawPart(part: RawGeometryPart): string | null {
   return null;
 }
 
-function mergeParts(parts: InternalPreparedPart[], expressID: number, colorId: number): PreparedIfcMeshData {
+function resolveMergeMode(model: RawIfcModel, opts: GeometryPreparationOptions): GeometryMergeMode {
+  if (opts.mergeMode) {
+    return opts.mergeMode;
+  }
+
+  if (opts.autoMergeStrategy) {
+    const strategy = opts.autoMergeStrategy;
+    const partCount = model.rawStats.partCount;
+    const lowMode = strategy.lowMode ?? "by-express-color";
+    const mediumMode = strategy.mediumMode ?? "by-color";
+    const highMode = strategy.highMode ?? "two-material";
+    if (partCount <= strategy.lowMaxParts) {
+      return lowMode;
+    }
+    if (partCount <= strategy.mediumMaxParts) {
+      return mediumMode;
+    }
+    return highMode;
+  }
+
+  if (opts.mergeMeshes === false) {
+    return "none";
+  }
+  return "by-express-color";
+}
+
+function createPreparedPart(part: RawGeometryPart, generateNormals: boolean): InternalPreparedPart {
+  const positions = new Float32Array(part.positions);
+  let normals: Float32Array<ArrayBufferLike> = new Float32Array(part.normals);
+  const indices = new Uint32Array(part.indices);
+  const hasInvalidNormalLength = normals.length !== positions.length;
+
+  if (hasInvalidNormalLength || (generateNormals && areAllNormalsZero(normals))) {
+    normals = computeNormals(positions, indices);
+  }
+
+  applyTransform(positions, normals, part.flatTransform);
+
+  return {
+    expressID: part.expressID,
+    geometryExpressID: part.geometryExpressID,
+    colorId: part.colorId,
+    color: part.color,
+    positions,
+    normals,
+    indices,
+    isTransparent: Boolean(part.color && part.color.w < 1),
+  };
+}
+
+function buildGroupKey(part: InternalPreparedPart, mode: GeometryMergeMode): string {
+  switch (mode) {
+    case "none":
+      return `${part.expressID}-${part.geometryExpressID}-${part.colorId}`;
+    case "by-express-color":
+      return `${part.expressID}-${part.colorId}`;
+    case "by-color":
+      return `color-${part.colorId}`;
+    case "two-material":
+      return part.isTransparent ? "transparent" : "opaque";
+    default: {
+      const exhaustiveCheck: never = mode;
+      return String(exhaustiveCheck);
+    }
+  }
+}
+
+function determineGroupMaterial(
+  group: InternalPreparedPart[],
+  mode: GeometryMergeMode,
+): { colorId: number; color: { x: number; y: number; z: number; w: number } | null } {
+  if (mode === "two-material") {
+    if (group[0].isTransparent) {
+      return {
+        colorId: PERFORMANCE_TRANSPARENT_COLOR_ID,
+        color: PERFORMANCE_TRANSPARENT_COLOR,
+      };
+    }
+    return {
+      colorId: PERFORMANCE_OPAQUE_COLOR_ID,
+      color: PERFORMANCE_OPAQUE_COLOR,
+    };
+  }
+
+  return {
+    colorId: group[0].colorId,
+    color: group[0].color,
+  };
+}
+
+function determineGroupExpressID(group: InternalPreparedPart[]): number {
+  const firstExpressID = group[0].expressID;
+  for (let i = 1; i < group.length; i++) {
+    if (group[i].expressID !== firstExpressID) {
+      return -1;
+    }
+  }
+  return firstExpressID;
+}
+
+function createRangesForSinglePart(part: InternalPreparedPart): PreparedIfcElementRange[] {
+  return [
+    {
+      triangleStart: 0,
+      triangleCount: part.indices.length / 3,
+      expressID: part.expressID,
+    },
+  ];
+}
+
+function mergeParts(
+  parts: InternalPreparedPart[],
+  expressID: number,
+  colorId: number,
+  color: { x: number; y: number; z: number; w: number } | null,
+): PreparedIfcMeshData {
   let positionCount = 0;
   let normalCount = 0;
   let indexCount = 0;
@@ -208,6 +351,7 @@ function mergeParts(parts: InternalPreparedPart[], expressID: number, colorId: n
   const positions = new Float32Array(positionCount);
   const normals = new Float32Array(normalCount);
   const indices = new Uint32Array(indexCount);
+  const elementRanges: PreparedIfcElementRange[] = [];
 
   let vertexOffset = 0;
   let positionOffset = 0;
@@ -215,6 +359,24 @@ function mergeParts(parts: InternalPreparedPart[], expressID: number, colorId: n
   let indexOffset = 0;
 
   for (const part of parts) {
+    const triangleStart = indexOffset / 3;
+    const triangleCount = part.indices.length / 3;
+
+    const lastRange = elementRanges[elementRanges.length - 1];
+    if (
+      lastRange &&
+      lastRange.expressID === part.expressID &&
+      lastRange.triangleStart + lastRange.triangleCount === triangleStart
+    ) {
+      lastRange.triangleCount += triangleCount;
+    } else {
+      elementRanges.push({
+        triangleStart,
+        triangleCount,
+        expressID: part.expressID,
+      });
+    }
+
     positions.set(part.positions, positionOffset);
     normals.set(part.normals, normalOffset);
     for (let i = 0; i < part.indices.length; i++) {
@@ -229,10 +391,94 @@ function mergeParts(parts: InternalPreparedPart[], expressID: number, colorId: n
   return {
     expressID,
     colorId,
-    color: parts[0].color,
+    color,
     positions,
     normals,
     indices,
+    elementRanges,
+  };
+}
+
+interface MeshChunkLimits {
+  maxTrianglesPerMesh?: number;
+  maxVerticesPerMesh?: number;
+}
+
+function toChunkLimits(options: GeometryPreparationOptions): MeshChunkLimits | null {
+  const maxTrianglesPerMesh =
+    typeof options.maxTrianglesPerMesh === "number" && options.maxTrianglesPerMesh > 0
+      ? Math.floor(options.maxTrianglesPerMesh)
+      : undefined;
+  const maxVerticesPerMesh =
+    typeof options.maxVerticesPerMesh === "number" && options.maxVerticesPerMesh > 0
+      ? Math.floor(options.maxVerticesPerMesh)
+      : undefined;
+
+  if (maxTrianglesPerMesh === undefined && maxVerticesPerMesh === undefined) {
+    return null;
+  }
+
+  return { maxTrianglesPerMesh, maxVerticesPerMesh };
+}
+
+function mergePartsWithChunking(
+  parts: InternalPreparedPart[],
+  expressID: number,
+  colorId: number,
+  color: { x: number; y: number; z: number; w: number } | null,
+  limits: MeshChunkLimits | null,
+): PreparedIfcMeshData[] {
+  if (!limits) {
+    return [mergeParts(parts, expressID, colorId, color)];
+  }
+
+  const meshes: PreparedIfcMeshData[] = [];
+  let chunkParts: InternalPreparedPart[] = [];
+  let chunkTriangles = 0;
+  let chunkVertices = 0;
+
+  const flushChunk = () => {
+    if (chunkParts.length === 0) return;
+    meshes.push(mergeParts(chunkParts, expressID, colorId, color));
+    chunkParts = [];
+    chunkTriangles = 0;
+    chunkVertices = 0;
+  };
+
+  for (const part of parts) {
+    const partTriangles = part.indices.length / 3;
+    const partVertices = part.positions.length / 3;
+    const exceedsTriangleBudget =
+      limits.maxTrianglesPerMesh !== undefined && chunkTriangles + partTriangles > limits.maxTrianglesPerMesh;
+    const exceedsVertexBudget =
+      limits.maxVerticesPerMesh !== undefined && chunkVertices + partVertices > limits.maxVerticesPerMesh;
+
+    if (chunkParts.length > 0 && (exceedsTriangleBudget || exceedsVertexBudget)) {
+      flushChunk();
+    }
+
+    chunkParts.push(part);
+    chunkTriangles += partTriangles;
+    chunkVertices += partVertices;
+  }
+
+  flushChunk();
+  return meshes;
+}
+
+function toPreparedMeshData(
+  part: InternalPreparedPart,
+  colorId: number,
+  color: { x: number; y: number; z: number; w: number } | null,
+): PreparedIfcMeshData {
+  return {
+    expressID: part.expressID,
+    colorId,
+    color,
+    positions: part.positions,
+    normals: part.normals,
+    indices: part.indices,
+    elementRanges: createRangesForSinglePart(part),
   };
 }
 
@@ -245,6 +491,8 @@ export function prepareIfcModelGeometry(
     generateNormals: false,
     ...options,
   };
+  const mergeMode = resolveMergeMode(model, opts);
+  const chunkLimits = toChunkLimits(opts);
 
   let invalidPartCount = 0;
   const preparedParts: InternalPreparedPart[] = [];
@@ -256,33 +504,13 @@ export function prepareIfcModelGeometry(
       invalidPartCount++;
       continue;
     }
-
-    const positions = new Float32Array(part.positions);
-    let normals: Float32Array<ArrayBufferLike> = new Float32Array(part.normals);
-    const indices = new Uint32Array(part.indices);
-    const hasInvalidNormalLength = normals.length !== positions.length;
-
-    if (hasInvalidNormalLength || (opts.generateNormals && areAllNormalsZero(normals))) {
-      normals = computeNormals(positions, indices);
-    }
-
-    applyTransform(positions, normals, part.flatTransform);
-
-    preparedParts.push({
-      expressID: part.expressID,
-      geometryExpressID: part.geometryExpressID,
-      colorId: part.colorId,
-      color: part.color,
-      positions,
-      normals,
-      indices,
-    });
+    preparedParts.push(createPreparedPart(part, Boolean(opts.generateNormals)));
   }
 
   const groups = new Map<string, InternalPreparedPart[]>();
   for (const part of preparedParts) {
     throwIfAborted(opts.signal);
-    const key = `${part.expressID}-${part.colorId}`;
+    const key = buildGroupKey(part, mergeMode);
     const group = groups.get(key);
     if (group) {
       group.push(part);
@@ -296,21 +524,25 @@ export function prepareIfcModelGeometry(
   for (const group of groups.values()) {
     throwIfAborted(opts.signal);
     if (group.length === 0) continue;
-    if (!opts.mergeMeshes || group.length === 1) {
+
+    const groupMaterial = determineGroupMaterial(group, mergeMode);
+    if (mergeMode === "none" || group.length === 1) {
       for (const item of group) {
-        meshes.push({
-          expressID: item.expressID,
-          colorId: item.colorId,
-          color: item.color,
-          positions: item.positions,
-          normals: item.normals,
-          indices: item.indices,
-        });
+        meshes.push(toPreparedMeshData(item, groupMaterial.colorId, groupMaterial.color));
       }
-    } else {
-      meshes.push(mergeParts(group, group[0].expressID, group[0].colorId));
-      mergedGroupCount++;
+      continue;
     }
+
+    meshes.push(
+      ...mergePartsWithChunking(
+        group,
+        determineGroupExpressID(group),
+        groupMaterial.colorId,
+        groupMaterial.color,
+        chunkLimits,
+      ),
+    );
+    mergedGroupCount++;
   }
 
   return {
@@ -318,6 +550,7 @@ export function prepareIfcModelGeometry(
     sourcePartCount: model.rawStats.partCount,
     invalidPartCount,
     mergedGroupCount,
+    mergeMode,
     meshes,
   };
 }

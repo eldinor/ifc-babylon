@@ -11,7 +11,7 @@ import {
   PBRMaterial,
 } from "@babylonjs/core";
 import type { RawIfcModel, RawGeometryPart } from "./ifcInit";
-import type { PreparedIfcModel, PreparedIfcMeshData } from "./ifcModelPreparation";
+import type { PreparedIfcElementRange, PreparedIfcModel, PreparedIfcMeshData } from "./ifcModelPreparation";
 import { logInfo, logWarn } from "./logging";
 
 // ============================================================================
@@ -73,6 +73,12 @@ interface IfcMaterialMetadata {
   color: { r: number; g: number; b: number; a: number } | null;
 }
 
+export interface IfcPreparedMeshMetadata {
+  modelID: number;
+  expressID: number;
+  elementRanges: PreparedIfcElementRange[];
+}
+
 // ============================================================================
 // PUBLIC API - Scene Building
 // ============================================================================
@@ -121,13 +127,20 @@ export function buildIfcModel(
   if (isPreparedIfcModel(model)) {
     const materialCache = new Map<number, StandardMaterial | PBRMaterial>();
     const finalMeshes: AbstractMesh[] = [];
+    const meshNameCounts = new Map<string, number>();
     let materialZOffset = 0;
 
-    for (const prepared of model.meshes) {
-      const mesh = createMeshFromPreparedData(prepared, model.modelID, scene, rootNode);
+    for (let meshIndex = 0; meshIndex < model.meshes.length; meshIndex++) {
+      const prepared = model.meshes[meshIndex];
+      const mesh = createMeshFromPreparedData(prepared, model.modelID, meshIndex, scene, rootNode);
       const material = getMaterial(prepared.colorId, prepared.color, scene, materialCache, materialZOffset, opts);
       materialZOffset = (materialZOffset + MATERIAL_Z_OFFSET_STEP) % MATERIAL_Z_OFFSET_WRAP;
-      mesh.name = `ifc-${prepared.expressID}`;
+      const baseName = mesh.name;
+      const baseCount = meshNameCounts.get(baseName) ?? 0;
+      meshNameCounts.set(baseName, baseCount + 1);
+      if (baseCount > 0) {
+        mesh.name = `${baseName}-${baseCount}`;
+      }
       mesh.material = material;
       finalMeshes.push(mesh);
     }
@@ -505,16 +518,18 @@ function createMeshFromPart(
 function createMeshFromPreparedData(
   prepared: PreparedIfcMeshData,
   modelID: number,
+  meshIndex: number,
   scene: Scene,
   rootNode: TransformNode,
 ): Mesh {
-  const meshName = `ifc-${prepared.expressID}`;
+  const meshName = prepared.expressID >= 0 ? `ifc-${prepared.expressID}` : `ifc-merged-${meshIndex}`;
   const mesh = new Mesh(meshName, scene);
   mesh.parent = rootNode;
   mesh.metadata = {
     expressID: prepared.expressID,
     modelID,
-  };
+    elementRanges: prepared.elementRanges,
+  } satisfies IfcPreparedMeshMetadata;
 
   const vertexData = new VertexData();
   vertexData.positions = prepared.positions;
@@ -527,6 +542,54 @@ function createMeshFromPreparedData(
 
 function isPreparedIfcModel(model: RawIfcModel | PreparedIfcModel): model is PreparedIfcModel {
   return "meshes" in model && "sourcePartCount" in model;
+}
+
+function isPreparedMeshMetadata(metadata: unknown): metadata is IfcPreparedMeshMetadata {
+  if (typeof metadata !== "object" || metadata === null) {
+    return false;
+  }
+  const value = metadata as Partial<IfcPreparedMeshMetadata>;
+  return (
+    typeof value.modelID === "number" &&
+    typeof value.expressID === "number" &&
+    Array.isArray(value.elementRanges)
+  );
+}
+
+export function resolveExpressIDFromMeshPick(mesh: AbstractMesh, faceId: number | null | undefined): number | null {
+  if (!isPreparedMeshMetadata(mesh.metadata)) {
+    return null;
+  }
+  if (mesh.metadata.expressID >= 0) {
+    return mesh.metadata.expressID;
+  }
+  if (typeof faceId !== "number" || faceId < 0) {
+    return null;
+  }
+  return resolveExpressIDFromRanges(mesh.metadata.elementRanges, faceId);
+}
+
+function resolveExpressIDFromRanges(ranges: PreparedIfcElementRange[], faceId: number): number | null {
+  let low = 0;
+  let high = ranges.length - 1;
+
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    const range = ranges[mid];
+    const start = range.triangleStart;
+    const end = start + range.triangleCount;
+    if (faceId < start) {
+      high = mid - 1;
+      continue;
+    }
+    if (faceId >= end) {
+      low = mid + 1;
+      continue;
+    }
+    return range.expressID;
+  }
+
+  return null;
 }
 
 function areAllNormalsZero(normals: Float32Array): boolean {

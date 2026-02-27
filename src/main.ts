@@ -1,5 +1,5 @@
 import * as WebIFC from "web-ifc";
-import { buildIfcModel, disposeIfcModel, getModelBounds } from "./ifcModel";
+import { buildIfcModel, disposeIfcModel, getModelBounds, resolveExpressIDFromMeshPick } from "./ifcModel";
 import { IfcWorkerClient } from "./ifcWorkerClient";
 import {
   Engine,
@@ -35,14 +35,13 @@ let currentRootNode: TransformNode | null = null;
 let currentHighlightedMesh: AbstractMesh | null = null;
 
 interface IfcMeshMetadata {
-  expressID: number;
   modelID: number;
 }
 
 function isIfcMeshMetadata(metadata: unknown): metadata is IfcMeshMetadata {
   if (typeof metadata !== "object" || metadata === null) return false;
   const value = metadata as Partial<IfcMeshMetadata>;
-  return typeof value.expressID === "number" && typeof value.modelID === "number";
+  return typeof value.modelID === "number";
 }
 
 try {
@@ -75,8 +74,17 @@ const setupPickingHandler = (scene: Scene, worker: IfcWorkerClient) => {
       const pickedMesh = pickResult.pickedMesh;
       if (isIfcMeshMetadata(pickedMesh.metadata)) {
         const metadata = pickedMesh.metadata;
-        const expressID = metadata.expressID;
         const modelID = metadata.modelID;
+        const expressID = resolveExpressIDFromMeshPick(pickedMesh, pickResult.faceId);
+
+        if (expressID === null) {
+          console.warn("Could not resolve expressID from picked mesh/face");
+          return;
+        }
+        if (modelID < 0) {
+          console.warn("Model is closed; IFC element queries are unavailable.");
+          return;
+        }
 
         console.log(`\nPicked IFC Element:`);
         console.log(`  Mesh: ${pickedMesh.name}`);
@@ -144,6 +152,7 @@ const hideUpperTextAndClearHighlight = () => {
  */
 const showProjectInfo = async (modelID: number) => {
   if (!ifcWorker) return;
+  if (modelID < 0) return;
 
   const projectInfo = await ifcWorker.getProjectInfo(modelID);
   const upperText = document.getElementById("upper-text");
@@ -240,8 +249,16 @@ const loadIfc = async (scene: Scene, source: string | File) => {
       verbose: true,
     },
     {
-      mergeMeshes: true,
       generateNormals: false,
+      maxTrianglesPerMesh: 200000,
+      maxVerticesPerMesh: 300000,
+      autoMergeStrategy: {
+        lowMaxParts: 1500,
+        mediumMaxParts: 5000,
+        lowMode: "by-express-color",
+        mediumMode: "by-color",
+        highMode: "two-material",
+      },
     },
   );
 
@@ -313,7 +330,9 @@ const createScene = async (): Promise<Scene> => {
       console.log(`  Build time: ${stats.buildTimeMs.toFixed(2)}ms`);
 
       // Show project info in upper text
-      await showProjectInfo(modelID);
+      if (modelID >= 0) {
+        await showProjectInfo(modelID);
+      }
 
       // Adjust camera to view the loaded model
       if (currentIfcMeshes.length > 0) {
@@ -401,7 +420,7 @@ if (ifcWorker) {
         disposeIfcModel(scene);
 
         // Close the IFC model and free WASM memory
-        if (currentModelID !== null) {
+        if (currentModelID !== null && currentModelID >= 0) {
           await ifcWorker.closeIfcModel(currentModelID);
         }
 
@@ -427,7 +446,9 @@ if (ifcWorker) {
       }
 
       // Show project info in upper text
-      await showProjectInfo(modelID);
+      if (modelID >= 0) {
+        await showProjectInfo(modelID);
+      }
 
       // Adjust camera to view the loaded model
       const camera = scene.activeCamera as ArcRotateCamera;
