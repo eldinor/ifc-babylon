@@ -1,6 +1,6 @@
-import { initializeWebIFC, loadIfcModel, closeIfcModel, getProjectInfo } from "./ifcInit";
+import * as WebIFC from "web-ifc";
 import { buildIfcModel, disposeIfcModel, getModelBounds } from "./ifcModel";
-import type { IfcAPI } from "web-ifc";
+import { IfcWorkerClient } from "./ifcWorkerClient";
 import {
   Engine,
   Scene,
@@ -23,8 +23,8 @@ const VIEWER_CONFIG = {
   },
 } as const;
 
-// Initialize web-ifc API
-let ifcAPI: IfcAPI | null = null;
+// Initialize web-ifc worker client
+let ifcWorker: IfcWorkerClient | null = null;
 
 // Store currently loaded meshes and model ID for cleanup when loading new files
 let currentIfcMeshes: AbstractMesh[] = [];
@@ -48,10 +48,12 @@ function isIfcMeshMetadata(metadata: unknown): metadata is IfcMeshMetadata {
 try {
   // Set WASM path to "./" so web-ifc can find web-ifc.wasm in production
   // In dev, Vite serves from node_modules; in prod, vite-plugin-static-copy puts it at dist root
-  ifcAPI = await initializeWebIFC("./");
-  console.log("web-ifc initialized successfully");
+  ifcWorker = new IfcWorkerClient();
+  await ifcWorker.init("/", WebIFC.LogLevel.LOG_LEVEL_ERROR);
+  console.log("web-ifc worker initialized successfully");
 } catch (error) {
-  console.error("Failed to initialize web-ifc:", error);
+  console.error("Failed to initialize web-ifc worker:", error);
+  ifcWorker = null;
   console.log("  The Babylon.js scene will still work, but IFC loading will not be available");
 }
 
@@ -64,8 +66,8 @@ const engine = new Engine(canvas, true);
 /**
  * Setup picking handler for IFC elements
  */
-const setupPickingHandler = (scene: Scene, ifcAPI: IfcAPI) => {
-  scene.onPointerDown = (evt, pickResult) => {
+const setupPickingHandler = (scene: Scene, worker: IfcWorkerClient) => {
+  scene.onPointerDown = async (evt, pickResult) => {
     // Only handle left click
     if (evt.button !== 0) return;
 
@@ -82,13 +84,7 @@ const setupPickingHandler = (scene: Scene, ifcAPI: IfcAPI) => {
         console.log(`  Model ID: ${modelID}`);
 
         try {
-          // Fetch full element data - includes all properties
-          const element = ifcAPI.GetLine(modelID, expressID, true) as {
-            type: number;
-            Name?: { value?: string };
-          };
-          // Get the IFC type name (e.g., "IFCWALL", "IFCDOOR", etc.)
-          const typeName = ifcAPI.GetNameFromTypeCode(element.type);
+          const { element, typeName } = await worker.getElementData(modelID, expressID);
           console.log(`  Element type name:`, typeName);
           console.log(`  Element data:`, element);
           console.log(`  Element type:`, element.type);
@@ -146,10 +142,10 @@ const hideUpperTextAndClearHighlight = () => {
 /**
  * Helper function to show project info in upper text
  */
-const showProjectInfo = (modelID: number) => {
-  if (!ifcAPI) return;
+const showProjectInfo = async (modelID: number) => {
+  if (!ifcWorker) return;
 
-  const projectInfo = getProjectInfo(ifcAPI, modelID);
+  const projectInfo = await ifcWorker.getProjectInfo(modelID);
   const upperText = document.getElementById("upper-text");
 
   if (upperText) {
@@ -230,14 +226,14 @@ const adjustCameraToMeshes = (meshes: AbstractMesh[], camera: ArcRotateCamera) =
  * Load an IFC file using the new two-step API
  */
 const loadIfc = async (scene: Scene, source: string | File) => {
-  if (!ifcAPI) {
-    throw new Error("IFC API not initialized");
+  if (!ifcWorker) {
+    throw new Error("IFC worker not initialized");
   }
 
   console.log(`\nLoading IFC file...`);
 
   // Step 1: Load raw IFC model data (web-ifc only)
-  const model = await loadIfcModel(ifcAPI, source, {
+  const model = await ifcWorker.loadIfcModel(source, {
     coordinateToOrigin: true,
     verbose: true,
   });
@@ -288,12 +284,12 @@ const createScene = async (): Promise<Scene> => {
   }
 
   // Setup picking handler for IFC elements (if API is available)
-  if (ifcAPI) {
-    setupPickingHandler(scene, ifcAPI);
+  if (ifcWorker) {
+    setupPickingHandler(scene, ifcWorker);
   }
 
   // After creating the scene, try to load initial IFC file
-  if (ifcAPI) {
+  if (ifcWorker) {
     try {
       const { meshes, modelID, rootNode, stats } = await loadIfc(scene, "/test.ifc");
 
@@ -310,7 +306,7 @@ const createScene = async (): Promise<Scene> => {
       console.log(`  Build time: ${stats.buildTimeMs.toFixed(2)}ms`);
 
       // Show project info in upper text
-      showProjectInfo(modelID);
+      await showProjectInfo(modelID);
 
       // Adjust camera to view the loaded model
       if (currentIfcMeshes.length > 0) {
@@ -340,8 +336,14 @@ window.addEventListener("resize", () => {
   engine.resize();
 });
 
+window.addEventListener("beforeunload", () => {
+  if (ifcWorker) {
+    void ifcWorker.dispose();
+  }
+});
+
 // Add drag-and-drop functionality for IFC files
-if (ifcAPI) {
+if (ifcWorker) {
   // Prevent default drag behaviorshowProjectInfo
   canvas.addEventListener("dragover", (e) => {
     e.preventDefault();
@@ -393,7 +395,7 @@ if (ifcAPI) {
 
         // Close the IFC model and free WASM memory
         if (currentModelID !== null) {
-          closeIfcModel(ifcAPI, currentModelID);
+          await ifcWorker.closeIfcModel(currentModelID);
         }
 
         currentIfcMeshes = [];
@@ -418,7 +420,7 @@ if (ifcAPI) {
       }
 
       // Show project info in upper text
-      showProjectInfo(modelID);
+      await showProjectInfo(modelID);
 
       // Adjust camera to view the loaded model
       const camera = scene.activeCamera as ArcRotateCamera;

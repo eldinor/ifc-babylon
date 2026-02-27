@@ -114,6 +114,20 @@ const { meshes, rootNode, stats } = buildIfcModel(model, scene, {
 });
 ```
 
+### Single Loader API (choose worker or main-thread)
+
+```typescript
+import { createIfcLoader } from "babylon-ifc-loader";
+
+const ifc = createIfcLoader({ useWorker: true }); // false = main-thread
+await ifc.init("/", WebIFC.LogLevel.LOG_LEVEL_ERROR);
+
+const model = await ifc.loadIfcModel("/test.ifc", {
+  coordinateToOrigin: true,
+  verbose: true,
+});
+```
+
 ### Load from URL or File
 
 ```typescript

@@ -131,7 +131,7 @@ export async function initializeWebIFC(
  */
 export async function loadIfcModel(
   ifcAPI: WebIFC.IfcAPI,
-  source: string | File,
+  source: string | File | ArrayBuffer,
   options: IfcInitOptions = {},
 ): Promise<RawIfcModel> {
   const opts: IfcInitOptions = {
@@ -261,7 +261,11 @@ export function getProjectInfo(ifcAPI: WebIFC.IfcAPI, modelID: number): ProjectI
 /**
  * Open an IFC model from URL or File
  */
-async function openModel(ifcAPI: WebIFC.IfcAPI, source: string | File, options: IfcInitOptions): Promise<number> {
+async function openModel(
+  ifcAPI: WebIFC.IfcAPI,
+  source: string | File | ArrayBuffer,
+  options: IfcInitOptions,
+): Promise<number> {
   let data: ArrayBuffer;
   throwIfAborted(options.signal);
 
@@ -278,9 +282,12 @@ async function openModel(ifcAPI: WebIFC.IfcAPI, source: string | File, options: 
 
     data = await response.arrayBuffer();
     logInfo(`Received ${(data.byteLength / 1024 / 1024).toFixed(2)} MB`);
-  } else {
+  } else if (source instanceof File) {
     logInfo(`Loading IFC file: ${source.name} (${(source.size / 1024 / 1024).toFixed(2)} MB)`);
     data = await source.arrayBuffer();
+  } else {
+    data = source;
+    logInfo(`Loading IFC from ArrayBuffer (${(data.byteLength / 1024 / 1024).toFixed(2)} MB)`);
   }
 
   throwIfAborted(options.signal);

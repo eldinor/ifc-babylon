@@ -4,7 +4,27 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
-- No changes yet.
+ - No changes yet.
+
+## [2.1.0]
+
+### Exposed API Changes
+
+- Added `createIfcLoader(options?: { useWorker?: boolean })`:
+  - Unified loader facade for choosing worker or main-thread mode with one flag.
+- Added `IfcLoader` interface export:
+  - Common async methods: `init`, `loadIfcModel`, `closeIfcModel`, `getProjectInfo`, `getElementData`, `dispose`.
+- Added `CreateIfcLoaderOptions` export.
+- Added `ElementDataResult` export.
+- Exported `IfcWorkerClient` in npm package entry.
+
+### Packaging / Build
+
+- Included worker-related outputs in npm build:
+  - `ifc.worker.*`
+  - `ifcWorkerClient.*`
+  - `ifcLoader.*`
+  - `web-ifc.wasm`
 
 ## [2.0.0]
 

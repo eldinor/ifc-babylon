@@ -4,6 +4,11 @@ This document provides detailed API reference for the IFC Viewer library. The co
 
 ## Table of Contents
 
+- [Unified Loader API (ifcLoader.ts)](#unified-loader-api-ifcloaderts)
+  - [createIfcLoader](#createifcloader)
+  - [IfcLoader](#ifcloader)
+  - [CreateIfcLoaderOptions](#createifcloaderoptions)
+  - [ElementDataResult](#elementdataresult)
 - [IFC Data Layer (ifcInit.ts)](#ifc-data-layer-ifcinitts)
   - [initializeWebIFC](#initializewebifc)
   - [loadIfcModel](#loadifcmodel)
@@ -16,6 +21,78 @@ This document provides detailed API reference for the IFC Viewer library. The co
   - [getModelBounds](#getmodelbounds)
   - [centerModelAtOrigin](#centermodelatorigin)
   - [Types](#types-ifcmodel)
+
+---
+
+## Unified Loader API (ifcLoader.ts)
+
+Single entry point to choose worker or main-thread mode without changing loading flow.
+
+### createIfcLoader
+
+```typescript
+function createIfcLoader(options?: CreateIfcLoaderOptions): IfcLoader;
+```
+
+#### Parameters
+
+| Parameter | Type                     | Required | Default | Description                                  |
+| --------- | ------------------------ | -------- | ------- | -------------------------------------------- |
+| `options` | `CreateIfcLoaderOptions` | No       | `{}`    | Loader creation options (`useWorker` toggle). |
+
+#### Example
+
+```typescript
+import * as WebIFC from "web-ifc";
+import { createIfcLoader } from "babylon-ifc-loader";
+
+const ifc = createIfcLoader({ useWorker: true }); // false = main-thread
+await ifc.init("/", WebIFC.LogLevel.LOG_LEVEL_ERROR);
+
+const model = await ifc.loadIfcModel("/test.ifc", {
+  coordinateToOrigin: true,
+  verbose: true,
+});
+
+const projectInfo = await ifc.getProjectInfo(model.modelID);
+const elementData = await ifc.getElementData(model.modelID, 123);
+
+await ifc.closeIfcModel(model.modelID);
+await ifc.dispose();
+```
+
+### IfcLoader
+
+```typescript
+interface IfcLoader {
+  init(wasmPath?: string, logLevel?: WebIFC.LogLevel): Promise<void>;
+  loadIfcModel(source: string | File, options?: Omit<IfcInitOptions, "signal">): Promise<RawIfcModel>;
+  closeIfcModel(modelID: number): Promise<void>;
+  getProjectInfo(modelID: number): Promise<ProjectInfoResult>;
+  getElementData(modelID: number, expressID: number): Promise<ElementDataResult>;
+  dispose(): Promise<void>;
+}
+```
+
+### CreateIfcLoaderOptions
+
+```typescript
+interface CreateIfcLoaderOptions {
+  useWorker?: boolean; // default: false
+}
+```
+
+### ElementDataResult
+
+```typescript
+interface ElementDataResult {
+  typeName: string;
+  element: {
+    type: number;
+    Name?: { value?: string };
+  };
+}
+```
 
 ---
 

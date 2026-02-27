@@ -19,6 +19,13 @@
     "erasableSyntaxOnly": true,
     "noUncheckedSideEffectImports": true
   },
-  "include": ["src/index.ts", "src/ifcInit.ts", "src/ifcModel.ts"],
+  "include": [
+    "src/index.ts",
+    "src/ifcInit.ts",
+    "src/ifcModel.ts",
+    "src/ifcWorkerClient.ts",
+    "src/ifc.worker.ts",
+    "src/ifcLoader.ts"
+  ],
   "exclude": ["src/__tests__", "src/main.ts", "src/style.css"]
 }

@@ -1,6 +1,6 @@
 {
   "name": "babylon-ifc-loader",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Babylon.js Loader for IFC files using web-ifc",
   "type": "module",
   "main": "dist-npm/index.js",
@@ -22,7 +22,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "build:npm": "tsc --project tsconfig.build.json && npm run copy:wasm",
+    "build:npm": "tsc --project tsconfig.build.json && npm run fix:worker-path && npm run copy:wasm",
+    "fix:worker-path": "node -e \"const fs=require('fs');const p='dist-npm/ifcWorkerClient.js';const s=fs.readFileSync(p,'utf8');fs.writeFileSync(p,s.replace('./ifc.worker.ts','./ifc.worker.js'));\"",
     "copy:wasm": "node -e \"require('fs').cpSync('node_modules/web-ifc/web-ifc.wasm', 'dist-npm/web-ifc.wasm')\"",
     "build:all": "npm run build && npm run build:npm",
     "preview": "vite preview",
