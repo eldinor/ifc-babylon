@@ -4,6 +4,10 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+ - No changes yet.
+
+## [2.2.0]
+
 ### Added
 
 - Prepared geometry tuning and profiles:
