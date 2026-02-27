@@ -24,7 +24,19 @@ type NullBuildResponse =
 
 const engine = new NullEngine();
 
-self.onmessage = (event: MessageEvent<NullBuildRequest>) => {
+async function waitForSceneMeshCount(scene: Scene, expectedMeshCount: number, timeoutMs = 5000): Promise<void> {
+  const start = performance.now();
+  while (scene.meshes.length < expectedMeshCount) {
+    if (performance.now() - start > timeoutMs) {
+      throw new Error(
+        `Timed out waiting for scene meshes: expected >= ${expectedMeshCount}, got ${scene.meshes.length}`,
+      );
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  }
+}
+
+self.onmessage = async (event: MessageEvent<NullBuildRequest>) => {
   const message = event.data;
 
   if (message.type !== "build") return;
@@ -41,6 +53,7 @@ self.onmessage = (event: MessageEvent<NullBuildRequest>) => {
       freezeAfterBuild: true,
       usePBRMaterials: true,
     });
+    await waitForSceneMeshCount(scene, result.meshes.length);
     const buildMs = performance.now() - start;
 
     disposeIfcModel(scene);
@@ -62,4 +75,3 @@ self.onmessage = (event: MessageEvent<NullBuildRequest>) => {
     self.postMessage(response);
   }
 };
-

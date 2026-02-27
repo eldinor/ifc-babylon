@@ -33,6 +33,18 @@ function median(values: number[]): number {
   return sorted[Math.floor(sorted.length / 2)];
 }
 
+async function waitForSceneMeshCount(scene: Scene, expectedMeshCount: number, timeoutMs = 5000): Promise<void> {
+  const start = performance.now();
+  while (scene.meshes.length < expectedMeshCount) {
+    if (performance.now() - start > timeoutMs) {
+      throw new Error(
+        `Timed out waiting for scene meshes: expected >= ${expectedMeshCount}, got ${scene.meshes.length}`,
+      );
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  }
+}
+
 class NullBuildWorkerClient {
   private worker: Worker;
   private requestId = 1;
@@ -135,7 +147,7 @@ async function benchmarkScenario(mode: BenchMode, source: IfcSource, iterations:
           }
           buildTimes.push(response.buildMs);
         } else {
-          buildIfcModel(model, scene, {
+          const result = buildIfcModel(model, scene, {
             autoCenter: true,
             mergeMeshes: true,
             doubleSided: true,
@@ -144,6 +156,7 @@ async function benchmarkScenario(mode: BenchMode, source: IfcSource, iterations:
             freezeAfterBuild: true,
             usePBRMaterials: true,
           });
+          await waitForSceneMeshCount(scene, result.meshes.length);
           const buildMs = performance.now() - buildStart;
           buildTimes.push(buildMs);
         }
