@@ -10,6 +10,68 @@ While providing the minimal viewer experience, this repo is dedicated to develop
 npm install babylon-ifc-loader
 ```
 
+## Upgrade Guide (NPM users)
+
+Use these steps to upgrade safely to the latest published package version.
+
+1. Check your currently installed version.
+
+```bash
+npm ls babylon-ifc-loader
+```
+
+2. Upgrade to latest.
+
+```bash
+npm install babylon-ifc-loader@latest
+```
+
+3. Verify the installed version.
+
+```bash
+npm ls babylon-ifc-loader
+```
+
+4. If you use a lockfile in CI (`package-lock.json`), commit the lockfile changes after upgrade.
+
+5. If you previously used `npm link` for local testing, unlink and reinstall from registry:
+
+```bash
+npm unlink babylon-ifc-loader
+npm install babylon-ifc-loader@latest
+```
+
+### Minimal migration checklist
+
+1. Prefer unified loader API:
+
+```typescript
+import { createIfcLoader } from "babylon-ifc-loader";
+
+const loader = createIfcLoader({ useWorker: true });
+await loader.init("/");
+```
+
+2. Prefer prepared loading for performance:
+
+```typescript
+const prepared = await loader.loadPreparedIfcModel("/model.ifc");
+```
+
+3. Build scene from prepared model:
+
+```typescript
+const result = buildIfcModel(prepared, scene, { usePBRMaterials: true });
+```
+
+4. Use merged-picking-safe resolve helper when needed:
+
+```typescript
+const expressID = resolveExpressIDFromMeshPick(pickedMesh, pickResult.faceId);
+```
+
+5. Review version notes in `CHANGELOG.md` for behavior changes before deploy.
+
 ## Quick Start
 
 ```bash
