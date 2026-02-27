@@ -25,6 +25,12 @@ type WorkerRequest =
       source: WorkerLoadSource;
       options: Omit<IfcInitOptions, "signal">;
       prepareOptions: GeometryPreparationOptions;
+      keepModelOpen: boolean;
+    }
+  | {
+      type: "cancel";
+      id: number;
+      requestID: number;
     }
   | {
       type: "closeModel";
@@ -61,6 +67,33 @@ type WorkerResultMessage =
       error: string;
     };
 
+type WorkerProgressPhase = "load-start" | "load-done" | "prepare-start" | "prepare-done";
+
+type WorkerProgressMessage = {
+  type: "progress";
+  id: number;
+  phase: WorkerProgressPhase;
+  elapsedMs: number;
+  details?: Record<string, unknown>;
+};
+
+type WorkerMessage = WorkerResultMessage | WorkerProgressMessage;
+
+export interface IfcWorkerProgressEvent {
+  phase: WorkerProgressPhase;
+  elapsedMs: number;
+  details?: Record<string, unknown>;
+}
+
+export interface IfcWorkerLoadOptions extends Omit<IfcInitOptions, "signal"> {
+  signal?: AbortSignal;
+  onProgress?: (event: IfcWorkerProgressEvent) => void;
+}
+
+export interface LoadPreparedIfcModelOptions extends IfcWorkerLoadOptions {
+  keepModelOpen?: boolean;
+}
+
 export interface ElementDataResult {
   typeName: string;
   element: {
@@ -72,6 +105,23 @@ export interface ElementDataResult {
 interface PendingRequest {
   resolve: (value: any) => void;
   reject: (reason?: unknown) => void;
+  signal?: AbortSignal;
+  abortHandler?: () => void;
+  onProgress?: (event: IfcWorkerProgressEvent) => void;
+}
+
+interface RequestOptions {
+  signal?: AbortSignal;
+  onProgress?: (event: IfcWorkerProgressEvent) => void;
+}
+
+function createAbortError(): Error {
+  if (typeof DOMException !== "undefined") {
+    return new DOMException("Operation was aborted", "AbortError");
+  }
+  const error = new Error("Operation was aborted");
+  error.name = "AbortError";
+  return error;
 }
 
 export class IfcWorkerClient {
@@ -81,13 +131,24 @@ export class IfcWorkerClient {
 
   constructor() {
     this.worker = new Worker(new URL("./ifc.worker.ts", import.meta.url), { type: "module" });
-    this.worker.onmessage = (event: MessageEvent<WorkerResultMessage>) => {
+    this.worker.onmessage = (event: MessageEvent<WorkerMessage>) => {
       const message = event.data;
-      if (message.type !== "result") return;
+      if (message.type === "progress") {
+        const pending = this.pending.get(message.id);
+        pending?.onProgress?.({
+          phase: message.phase,
+          elapsedMs: message.elapsedMs,
+          details: message.details,
+        });
+        return;
+      }
 
       const pending = this.pending.get(message.id);
       if (!pending) return;
       this.pending.delete(message.id);
+      if (pending.signal && pending.abortHandler) {
+        pending.signal.removeEventListener("abort", pending.abortHandler);
+      }
 
       if (message.ok) {
         pending.resolve(message.data);
@@ -106,11 +167,12 @@ export class IfcWorkerClient {
     });
   }
 
-  async loadIfcModel(source: string | File, options: Omit<IfcInitOptions, "signal"> = {}): Promise<RawIfcModel> {
+  async loadIfcModel(source: string | File, options: IfcWorkerLoadOptions = {}): Promise<RawIfcModel> {
     const workerSource: WorkerLoadSource =
       typeof source === "string"
         ? { kind: "url", url: source }
         : { kind: "file", name: source.name, data: await source.arrayBuffer() };
+    const { signal, onProgress, ...workerOptions } = options;
 
     const transferables: Transferable[] = [];
     if (workerSource.kind === "file") {
@@ -122,21 +184,23 @@ export class IfcWorkerClient {
         type: "load",
         id: 0,
         source: workerSource,
-        options,
+        options: workerOptions,
       },
       transferables,
+      { signal, onProgress },
     );
   }
 
   async loadPreparedIfcModel(
     source: string | File,
-    options: Omit<IfcInitOptions, "signal"> = {},
+    options: LoadPreparedIfcModelOptions = {},
     prepareOptions: GeometryPreparationOptions = {},
   ): Promise<PreparedIfcModel> {
     const workerSource: WorkerLoadSource =
       typeof source === "string"
         ? { kind: "url", url: source }
         : { kind: "file", name: source.name, data: await source.arrayBuffer() };
+    const { signal, onProgress, keepModelOpen = true, ...workerOptions } = options;
 
     const transferables: Transferable[] = [];
     if (workerSource.kind === "file") {
@@ -148,10 +212,12 @@ export class IfcWorkerClient {
         type: "loadPrepared",
         id: 0,
         source: workerSource,
-        options,
+        options: workerOptions,
         prepareOptions,
+        keepModelOpen,
       },
       transferables,
+      { signal, onProgress },
     );
   }
 
@@ -191,12 +257,42 @@ export class IfcWorkerClient {
     }
   }
 
-  private request<T>(message: WorkerRequest, transferables: Transferable[] = []): Promise<T> {
+  private request<T>(
+    message: WorkerRequest,
+    transferables: Transferable[] = [],
+    options: RequestOptions = {},
+  ): Promise<T> {
     const id = this.requestID++;
     const payload = { ...message, id };
 
     return new Promise<T>((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      if (options.signal?.aborted) {
+        reject(createAbortError());
+        return;
+      }
+
+      const abortHandler = () => {
+        this.pending.delete(id);
+        reject(createAbortError());
+        const cancelMessage: WorkerRequest = {
+          type: "cancel",
+          id: 0,
+          requestID: id,
+        };
+        this.worker.postMessage(cancelMessage);
+      };
+
+      if (options.signal) {
+        options.signal.addEventListener("abort", abortHandler, { once: true });
+      }
+
+      this.pending.set(id, {
+        resolve,
+        reject,
+        signal: options.signal,
+        abortHandler,
+        onProgress: options.onProgress,
+      });
       this.worker.postMessage(payload, transferables);
     });
   }

@@ -455,33 +455,35 @@ const resetCamera = () => {
   }
 };
 
-// Track inspector state for toggle functionality
-let inspectorLoaded = false;
+if (import.meta.env.DEV) {
+  // Track inspector state for toggle functionality
+  let inspectorLoaded = false;
 
-// Add Ctrl+I keyboard shortcut to toggle Babylon Inspector
-window.addEventListener("keydown", async (e) => {
-  // Check for Ctrl+I (or Cmd+I on Mac) - use e.code for keyboard layout independence
-  if ((e.ctrlKey || e.metaKey) && e.code === "KeyI") {
-    e.preventDefault();
+  // Add Ctrl+I keyboard shortcut to toggle Babylon Inspector
+  window.addEventListener("keydown", async (e) => {
+    // Check for Ctrl+I (or Cmd+I on Mac) - use e.code for keyboard layout independence
+    if ((e.ctrlKey || e.metaKey) && e.code === "KeyI") {
+      e.preventDefault();
 
-    // Dynamically import the inspector if not already loaded
-    if (!inspectorLoaded) {
-      try {
-        await import("@babylonjs/inspector");
-        inspectorLoaded = true;
-      } catch (error) {
-        console.error("Failed to load Babylon Inspector:", error);
-        return;
+      // Dynamically import the inspector if not already loaded
+      if (!inspectorLoaded) {
+        try {
+          await import("@babylonjs/inspector");
+          inspectorLoaded = true;
+        } catch (error) {
+          console.error("Failed to load Babylon Inspector:", error);
+          return;
+        }
+      }
+
+      // Toggle inspector visibility using scene.debugLayer
+      if (scene.debugLayer.isVisible()) {
+        scene.debugLayer.hide();
+        console.log("Inspector hidden");
+      } else {
+        await scene.debugLayer.show({ embedMode: false });
+        console.log("Inspector shown");
       }
     }
-
-    // Toggle inspector visibility using scene.debugLayer
-    if (scene.debugLayer.isVisible()) {
-      scene.debugLayer.hide();
-      console.log("Inspector hidden");
-    } else {
-      await scene.debugLayer.show({ embedMode: false });
-      console.log("Inspector shown");
-    }
-  }
-});
+  });
+}

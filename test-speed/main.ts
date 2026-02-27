@@ -105,7 +105,9 @@ async function benchmarkScenario(mode: BenchMode, source: IfcSource, iterations:
         disposeIfcModel(scene);
         scene.dispose();
         if (modelID !== null) {
-          await loader.closeIfcModel(modelID);
+          if (modelID >= 0) {
+            await loader.closeIfcModel(modelID);
+          }
         }
       }
 

@@ -3,6 +3,7 @@ import type { RawGeometryPart, RawIfcModel } from "./ifcInit";
 export interface GeometryPreparationOptions {
   mergeMeshes?: boolean; // default: true
   generateNormals?: boolean; // default: false
+  signal?: AbortSignal;
 }
 
 export interface PreparedIfcMeshData {
@@ -24,6 +25,21 @@ export interface PreparedIfcModel {
 
 interface InternalPreparedPart extends PreparedIfcMeshData {
   geometryExpressID: number;
+}
+
+function createAbortError(): Error {
+  if (typeof DOMException !== "undefined") {
+    return new DOMException("Operation was aborted", "AbortError");
+  }
+  const error = new Error("Operation was aborted");
+  error.name = "AbortError";
+  return error;
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw createAbortError();
+  }
 }
 
 function areAllNormalsZero(normals: Float32Array<ArrayBufferLike>): boolean {
@@ -234,6 +250,7 @@ export function prepareIfcModelGeometry(
   const preparedParts: InternalPreparedPart[] = [];
 
   for (const part of model.parts) {
+    throwIfAborted(opts.signal);
     const error = validateRawPart(part);
     if (error) {
       invalidPartCount++;
@@ -264,6 +281,7 @@ export function prepareIfcModelGeometry(
 
   const groups = new Map<string, InternalPreparedPart[]>();
   for (const part of preparedParts) {
+    throwIfAborted(opts.signal);
     const key = `${part.expressID}-${part.colorId}`;
     const group = groups.get(key);
     if (group) {
@@ -276,6 +294,7 @@ export function prepareIfcModelGeometry(
   const meshes: PreparedIfcMeshData[] = [];
   let mergedGroupCount = 0;
   for (const group of groups.values()) {
+    throwIfAborted(opts.signal);
     if (group.length === 0) continue;
     if (!opts.mergeMeshes || group.length === 1) {
       for (const item of group) {

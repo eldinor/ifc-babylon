@@ -21,6 +21,7 @@
   ],
   "scripts": {
     "dev": "vite",
+    "dev:clean": "node -e \"require('fs').rmSync('node_modules/.vite',{recursive:true,force:true})\" && vite --force",
     "build": "vite build",
     "build:npm": "tsc --project tsconfig.build.json && npm run fix:worker-path && npm run copy:wasm",
     "fix:worker-path": "node -e \"const fs=require('fs');const p='dist-npm/ifcWorkerClient.js';const s=fs.readFileSync(p,'utf8');fs.writeFileSync(p,s.replace('./ifc.worker.ts','./ifc.worker.js'));\"",

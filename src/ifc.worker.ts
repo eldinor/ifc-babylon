@@ -28,6 +28,12 @@ type WorkerRequest =
       source: WorkerLoadSource;
       options: Omit<IfcInitOptions, "signal">;
       prepareOptions: GeometryPreparationOptions;
+      keepModelOpen: boolean;
+    }
+  | {
+      type: "cancel";
+      id: number;
+      requestID: number;
     }
   | {
       type: "closeModel";
@@ -64,7 +70,18 @@ interface WorkerError {
   error: string;
 }
 
+type WorkerProgressPhase = "load-start" | "load-done" | "prepare-start" | "prepare-done";
+
+interface WorkerProgress {
+  type: "progress";
+  id: number;
+  phase: WorkerProgressPhase;
+  elapsedMs: number;
+  details?: Record<string, unknown>;
+}
+
 let ifcAPI: WebIFC.IfcAPI | null = null;
+const activeRequests = new Map<number, AbortController>();
 const WORKER_LOG_PREFIX = "[ifc.worker]";
 
 function workerLog(message: string, details?: Record<string, unknown>): void {
@@ -107,6 +124,22 @@ function postError(id: number, error: unknown): void {
   self.postMessage(message);
 }
 
+function postProgress(
+  id: number,
+  phase: WorkerProgressPhase,
+  requestStart: number,
+  details?: Record<string, unknown>,
+): void {
+  const message: WorkerProgress = {
+    type: "progress",
+    id,
+    phase,
+    elapsedMs: performance.now() - requestStart,
+    details,
+  };
+  self.postMessage(message);
+}
+
 function collectModelTransferables(model: Awaited<ReturnType<typeof loadIfcModel>>): Transferable[] {
   const transferables: Transferable[] = [];
   const visited = new Set<ArrayBuffer>();
@@ -141,7 +174,20 @@ function collectPreparedTransferables(model: PreparedIfcModel): Transferable[] {
 
 self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
   const message = event.data;
+  if (message.type === "cancel") {
+    const controller = activeRequests.get(message.requestID);
+    if (controller && !controller.signal.aborted) {
+      controller.abort();
+      workerLog("cancel request received", {
+        requestID: message.requestID,
+      });
+    }
+    return;
+  }
+
   const requestStart = performance.now();
+  const abortController = new AbortController();
+  activeRequests.set(message.id, abortController);
   workerLog(`received '${message.type}'`, { id: message.id });
 
   try {
@@ -159,11 +205,18 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
       case "load": {
         const api = ensureIfcAPI();
         const source = message.source.kind === "url" ? message.source.url : message.source.data;
+        postProgress(message.id, "load-start", requestStart, {
+          sourceKind: message.source.kind,
+        });
         workerLog("loading raw IFC model", {
           id: message.id,
           sourceKind: message.source.kind,
         });
-        const model = await loadIfcModel(api, source, message.options);
+        const model = await loadIfcModel(api, source, { ...message.options, signal: abortController.signal });
+        postProgress(message.id, "load-done", requestStart, {
+          modelID: model.modelID,
+          partCount: model.parts.length,
+        });
         workerLog("raw IFC model loaded", {
           id: message.id,
           modelID: model.modelID,
@@ -176,18 +229,47 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
       case "loadPrepared": {
         const api = ensureIfcAPI();
         const source = message.source.kind === "url" ? message.source.url : message.source.data;
+        postProgress(message.id, "load-start", requestStart, {
+          sourceKind: message.source.kind,
+        });
         workerLog("loading IFC model for preparation", {
           id: message.id,
           sourceKind: message.source.kind,
         });
-        const model = await loadIfcModel(api, source, message.options);
+        const model = await loadIfcModel(api, source, { ...message.options, signal: abortController.signal });
+        postProgress(message.id, "load-done", requestStart, {
+          modelID: model.modelID,
+          partCount: model.parts.length,
+        });
         const preparationStart = performance.now();
+        postProgress(message.id, "prepare-start", requestStart, {
+          modelID: model.modelID,
+          sourcePartCount: model.parts.length,
+        });
         workerLog("preparing geometry", {
           id: message.id,
           modelID: model.modelID,
           sourcePartCount: model.parts.length,
         });
-        const prepared = prepareIfcModelGeometry(model, message.prepareOptions);
+        let prepared = prepareIfcModelGeometry(model, {
+          ...message.prepareOptions,
+          signal: abortController.signal,
+        });
+        postProgress(message.id, "prepare-done", requestStart, {
+          modelID: prepared.modelID,
+          preparedMeshCount: prepared.meshes.length,
+        });
+        if (!message.keepModelOpen) {
+          closeIfcModel(api, model.modelID);
+          prepared = {
+            ...prepared,
+            modelID: -1,
+          };
+          workerLog("prepared model closed by option", {
+            id: message.id,
+            closedModelID: model.modelID,
+          });
+        }
         workerLog("geometry prepared", {
           id: message.id,
           modelID: prepared.modelID,
@@ -264,5 +346,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
       error: getErrorMessage(error),
     });
     postError(message.id, error);
+  } finally {
+    activeRequests.delete(message.id);
   }
 };

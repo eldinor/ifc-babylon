@@ -23,7 +23,11 @@ export default defineConfig({
     }),
   ],
   optimizeDeps: {
-    exclude: ["web-ifc"], // Critical: Prevents esbuild from choking on WASM/native modules
+    exclude: [
+      "web-ifc", // Prevents esbuild from choking on WASM/native modules
+      "@babylonjs/core",
+      "@babylonjs/inspector",
+    ],
   },
   assetsInclude: ["**/*.wasm"], // Ensures Vite processes .wasm files correctly
   // Optional: If using multi-threaded version (web-ifc-mt)

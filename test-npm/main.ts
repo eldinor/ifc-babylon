@@ -260,23 +260,25 @@ if (ifcLoader) {
   });
 }
 
-let inspectorLoaded = false;
-window.addEventListener("keydown", async (e) => {
-  if ((e.ctrlKey || e.metaKey) && e.code === "KeyI") {
-    e.preventDefault();
-    if (!inspectorLoaded) {
-      try {
-        await import("@babylonjs/inspector");
-        inspectorLoaded = true;
-      } catch (error) {
-        console.error("Failed to load Babylon Inspector:", error);
-        return;
+if (import.meta.env.DEV) {
+  let inspectorLoaded = false;
+  window.addEventListener("keydown", async (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.code === "KeyI") {
+      e.preventDefault();
+      if (!inspectorLoaded) {
+        try {
+          await import("@babylonjs/inspector");
+          inspectorLoaded = true;
+        } catch (error) {
+          console.error("Failed to load Babylon Inspector:", error);
+          return;
+        }
+      }
+      if (scene.debugLayer.isVisible()) {
+        scene.debugLayer.hide();
+      } else {
+        await scene.debugLayer.show({ embedMode: false });
       }
     }
-    if (scene.debugLayer.isVisible()) {
-      scene.debugLayer.hide();
-    } else {
-      await scene.debugLayer.show({ embedMode: false });
-    }
-  }
-});
+  });
+}
