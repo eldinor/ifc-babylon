@@ -1,10 +1,9 @@
 import * as WebIFC from "web-ifc";
 import { NullEngine, Scene } from "@babylonjs/core";
 import { createIfcLoader, buildIfcModel, disposeIfcModel } from "../src/index";
-import type { PreparedIfcModel } from "../src/index";
 
 type IfcSource = string | File;
-type BenchMode = "worker" | "main-thread" | "null-worker";
+type BenchMode = "worker" | "main-thread";
 
 interface BenchResult {
   mode: BenchMode;
@@ -14,10 +13,6 @@ interface BenchResult {
   coldStartTotalMs: number;
   steadyStateTotalMs: number;
 }
-
-type NullBuildResponse =
-  | { id: number; ok: true; buildMs: number; meshCount: number }
-  | { id: number; ok: false; error: string };
 
 const output = document.getElementById("output") as HTMLPreElement;
 const runButton = document.getElementById("run-btn") as HTMLButtonElement;
@@ -45,50 +40,6 @@ async function waitForSceneMeshCount(scene: Scene, expectedMeshCount: number, ti
   }
 }
 
-class NullBuildWorkerClient {
-  private worker: Worker;
-  private requestId = 1;
-  private pending = new Map<number, { resolve: (v: NullBuildResponse) => void }>();
-
-  constructor() {
-    this.worker = new Worker(new URL("../test-null/nullBuild.worker.ts", import.meta.url), { type: "module" });
-    this.worker.onmessage = (event: MessageEvent<NullBuildResponse>) => {
-      const message = event.data;
-      const pending = this.pending.get(message.id);
-      if (!pending) return;
-      this.pending.delete(message.id);
-      pending.resolve(message);
-    };
-  }
-
-  build(model: PreparedIfcModel, transferables: Transferable[]): Promise<NullBuildResponse> {
-    const id = this.requestId++;
-    return new Promise((resolve) => {
-      this.pending.set(id, { resolve });
-      this.worker.postMessage({ id, type: "build", model }, transferables);
-    });
-  }
-
-  dispose(): void {
-    this.worker.terminate();
-  }
-}
-
-function collectPreparedTransferables(model: PreparedIfcModel): Transferable[] {
-  const transferables: Transferable[] = [];
-  const visited = new Set<ArrayBuffer>();
-  for (const mesh of model.meshes) {
-    const buffers = [mesh.positions.buffer, mesh.normals.buffer, mesh.indices.buffer];
-    for (const buffer of buffers) {
-      if (buffer instanceof ArrayBuffer && !visited.has(buffer)) {
-        visited.add(buffer);
-        transferables.push(buffer);
-      }
-    }
-  }
-  return transferables;
-}
-
 async function initLoaderWithFallback(loader: ReturnType<typeof createIfcLoader>): Promise<void> {
   const wasmPaths = ["/", "/node_modules/web-ifc/"];
   let lastError: unknown = null;
@@ -108,7 +59,6 @@ async function initLoaderWithFallback(loader: ReturnType<typeof createIfcLoader>
 async function benchmarkScenario(mode: BenchMode, source: IfcSource, iterations: number): Promise<BenchResult> {
   const useWorker = mode !== "main-thread";
   const loader = createIfcLoader({ useWorker });
-  const nullWorker = mode === "null-worker" ? new NullBuildWorkerClient() : null;
   const engine = new NullEngine();
 
   const initStart = performance.now();
@@ -139,27 +89,18 @@ async function benchmarkScenario(mode: BenchMode, source: IfcSource, iterations:
         modelID = model.modelID;
 
         const buildStart = performance.now();
-        if (mode === "null-worker") {
-          const preparedModel = model as PreparedIfcModel;
-          const response = await nullWorker!.build(preparedModel, collectPreparedTransferables(preparedModel));
-          if (!response.ok) {
-            throw new Error(response.error);
-          }
-          buildTimes.push(response.buildMs);
-        } else {
-          const result = buildIfcModel(model, scene, {
-            autoCenter: true,
-            mergeMeshes: true,
-            doubleSided: true,
-            generateNormals: false,
-            verbose: false,
-            freezeAfterBuild: true,
-            usePBRMaterials: true,
-          });
-          await waitForSceneMeshCount(scene, result.meshes.length);
-          const buildMs = performance.now() - buildStart;
-          buildTimes.push(buildMs);
-        }
+        const result = buildIfcModel(model, scene, {
+          autoCenter: true,
+          mergeMeshes: true,
+          doubleSided: true,
+          generateNormals: false,
+          verbose: false,
+          freezeAfterBuild: true,
+          usePBRMaterials: true,
+        });
+        await waitForSceneMeshCount(scene, result.meshes.length);
+        const buildMs = performance.now() - buildStart;
+        buildTimes.push(buildMs);
       } finally {
         disposeIfcModel(scene);
         scene.dispose();
@@ -173,7 +114,6 @@ async function benchmarkScenario(mode: BenchMode, source: IfcSource, iterations:
     }
   } finally {
     await loader.dispose();
-    nullWorker?.dispose();
     engine.dispose();
   }
 
@@ -209,14 +149,8 @@ async function run(): Promise<void> {
     const worker = await benchmarkScenario("worker", source, iterations);
     logLine("");
 
-    logLine("Running null-worker benchmark...");
-    const nullWorker = await benchmarkScenario("null-worker", source, iterations);
-    logLine("");
-
     const coldSpeedup = mainThread.coldStartTotalMs / worker.coldStartTotalMs;
     const steadyStateSpeedup = mainThread.steadyStateTotalMs / worker.steadyStateTotalMs;
-    const coldSpeedupNull = mainThread.coldStartTotalMs / nullWorker.coldStartTotalMs;
-    const steadyStateSpeedupNull = mainThread.steadyStateTotalMs / nullWorker.steadyStateTotalMs;
     logLine("Results (median):");
     logLine(
       `- main-thread: init=${mainThread.initMs.toFixed(2)}ms, load=${mainThread.medianLoadMs.toFixed(2)}ms, build=${mainThread.medianBuildMs.toFixed(2)}ms, cold_start_total=${mainThread.coldStartTotalMs.toFixed(2)}ms, steady_state_total=${mainThread.steadyStateTotalMs.toFixed(2)}ms`,
@@ -224,13 +158,8 @@ async function run(): Promise<void> {
     logLine(
       `- worker:      init=${worker.initMs.toFixed(2)}ms, load=${worker.medianLoadMs.toFixed(2)}ms, build=${worker.medianBuildMs.toFixed(2)}ms, cold_start_total=${worker.coldStartTotalMs.toFixed(2)}ms, steady_state_total=${worker.steadyStateTotalMs.toFixed(2)}ms`,
     );
-    logLine(
-      `- null-worker: init=${nullWorker.initMs.toFixed(2)}ms, load=${nullWorker.medianLoadMs.toFixed(2)}ms, build=${nullWorker.medianBuildMs.toFixed(2)}ms, cold_start_total=${nullWorker.coldStartTotalMs.toFixed(2)}ms, steady_state_total=${nullWorker.steadyStateTotalMs.toFixed(2)}ms`,
-    );
     logLine(`- speedup cold-start (main-thread / worker): ${coldSpeedup.toFixed(2)}x`);
     logLine(`- speedup steady-state (main-thread / worker): ${steadyStateSpeedup.toFixed(2)}x`);
-    logLine(`- speedup cold-start (main-thread / null-worker): ${coldSpeedupNull.toFixed(2)}x`);
-    logLine(`- speedup steady-state (main-thread / null-worker): ${steadyStateSpeedupNull.toFixed(2)}x`);
   } catch (error) {
     logLine("");
     logLine(`Benchmark failed: ${String(error)}`);

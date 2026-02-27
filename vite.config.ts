@@ -39,7 +39,6 @@ export default defineConfig({
         main: resolve(__dirname, "index.html"),
         "test-npm/index": resolve(__dirname, "test-npm/index.html"),
         "test-speed/index": resolve(__dirname, "test-speed/index.html"),
-        "test-null/index": resolve(__dirname, "test-null/index.html"),
       },
     },
   },
