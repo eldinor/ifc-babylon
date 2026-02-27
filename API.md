@@ -8,6 +8,9 @@ This document provides detailed API reference for the IFC Viewer library. The co
   - [createIfcLoader](#createifcloader)
   - [IfcLoader](#ifcloader)
   - [CreateIfcLoaderOptions](#createifcloaderoptions)
+  - [IfcWorkerLoadOptions](#ifcworkerloadoptions)
+  - [LoadPreparedIfcModelOptions](#loadpreparedifcmodeloptions)
+  - [IfcWorkerProgressEvent](#ifcworkerprogressevent)
   - [ElementDataResult](#elementdataresult)
 - [IFC Data Layer (ifcInit.ts)](#ifc-data-layer-ifcinitts)
   - [initializeWebIFC](#initializewebifc)
@@ -15,11 +18,17 @@ This document provides detailed API reference for the IFC Viewer library. The co
   - [closeIfcModel](#closeifcmodel)
   - [getProjectInfo](#getprojectinfo)
   - [Types](#types-ifcinit)
+- [Geometry Preparation Layer (ifcModelPreparation.ts)](#geometry-preparation-layer-ifcmodelpreparationts)
+  - [prepareIfcModelGeometry](#prepareifcmodelgeometry)
+  - [GeometryPreparationOptions](#geometrypreparationoptions)
+  - [PreparedIfcModel](#preparedifcmodel)
+  - [PreparedIfcTelemetry](#preparedifctelemetry)
 - [Rendering Layer (ifcModel.ts)](#rendering-layer-ifcmodelts)
   - [buildIfcModel](#buildifcmodel)
   - [disposeIfcModel](#disposeifcmodel)
   - [getModelBounds](#getmodelbounds)
   - [centerModelAtOrigin](#centermodelatorigin)
+  - [resolveExpressIDFromMeshPick](#resolveexpressidfrommeshpick)
   - [Types](#types-ifcmodel)
 
 ---
@@ -43,16 +52,21 @@ function createIfcLoader(options?: CreateIfcLoaderOptions): IfcLoader;
 #### Example
 
 ```typescript
-import * as WebIFC from "web-ifc";
 import { createIfcLoader } from "babylon-ifc-loader";
 
 const ifc = createIfcLoader({ useWorker: true }); // false = main-thread
-await ifc.init("/", WebIFC.LogLevel.LOG_LEVEL_ERROR);
+await ifc.init("/");
 
 const model = await ifc.loadIfcModel("/test.ifc", {
   coordinateToOrigin: true,
   verbose: true,
 });
+
+const prepared = await ifc.loadPreparedIfcModel(
+  "/test.ifc",
+  { keepModelOpen: false, renderOnly: true },
+  { mergeMode: "two-material" },
+);
 
 const projectInfo = await ifc.getProjectInfo(model.modelID);
 const elementData = await ifc.getElementData(model.modelID, 123);
@@ -66,7 +80,12 @@ await ifc.dispose();
 ```typescript
 interface IfcLoader {
   init(wasmPath?: string, logLevel?: WebIFC.LogLevel): Promise<void>;
-  loadIfcModel(source: string | File, options?: Omit<IfcInitOptions, "signal">): Promise<RawIfcModel>;
+  loadIfcModel(source: string | File, options?: IfcWorkerLoadOptions): Promise<RawIfcModel>;
+  loadPreparedIfcModel(
+    source: string | File,
+    options?: LoadPreparedIfcModelOptions,
+    prepareOptions?: GeometryPreparationOptions,
+  ): Promise<PreparedIfcModel>;
   closeIfcModel(modelID: number): Promise<void>;
   getProjectInfo(modelID: number): Promise<ProjectInfoResult>;
   getElementData(modelID: number, expressID: number): Promise<ElementDataResult>;
@@ -79,6 +98,42 @@ interface IfcLoader {
 ```typescript
 interface CreateIfcLoaderOptions {
   useWorker?: boolean; // default: false
+}
+```
+
+### IfcWorkerLoadOptions
+
+```typescript
+interface IfcWorkerLoadOptions extends Omit<IfcInitOptions, "signal"> {
+  signal?: AbortSignal;
+  onProgress?: (event: IfcWorkerProgressEvent) => void;
+}
+```
+
+### LoadPreparedIfcModelOptions
+
+```typescript
+interface LoadPreparedIfcModelOptions extends IfcWorkerLoadOptions {
+  keepModelOpen?: boolean; // default: true
+  renderOnly?: boolean; // default: false
+}
+```
+
+`renderOnly: true` forces preparation defaults for visualization-only flow:
+
+- `mergeMode: "two-material"`
+- `includeElementMap: false`
+- `keepModelOpen: false`
+
+### IfcWorkerProgressEvent
+
+```typescript
+type WorkerProgressPhase = "load-start" | "load-done" | "prepare-start" | "prepare-done";
+
+interface IfcWorkerProgressEvent {
+  phase: WorkerProgressPhase;
+  elapsedMs: number;
+  details?: Record<string, unknown>;
 }
 ```
 
@@ -150,7 +205,7 @@ Load an IFC file and extract raw geometry data. Returns a `RawIfcModel` with no 
 ```typescript
 async function loadIfcModel(
   ifcAPI: WebIFC.IfcAPI,
-  source: string | File,
+  source: string | File | ArrayBuffer,
   options?: IfcInitOptions,
 ): Promise<RawIfcModel>;
 ```
@@ -160,7 +215,7 @@ async function loadIfcModel(
 | Parameter | Type             | Required | Default | Description                                             |
 | --------- | ---------------- | -------- | ------- | ------------------------------------------------------- |
 | `ifcAPI`  | `WebIFC.IfcAPI`  | Yes      | -       | Initialized web-ifc API instance.                       |
-| `source`  | `string \| File` | Yes      | -       | URL path to IFC file or File object from drag-and-drop. |
+| `source`  | `string \| File \| ArrayBuffer` | Yes      | -       | URL, File object, or preloaded IFC bytes. |
 | `options` | `IfcInitOptions` | No       | `{}`    | Configuration options for loading.                      |
 
 #### IfcInitOptions
@@ -169,6 +224,7 @@ async function loadIfcModel(
 | -------------------- | --------- | ------- | ------------------------------------------------------------------ |
 | `coordinateToOrigin` | `boolean` | `true`  | Move model coordinates to origin (web-ifc `COORDINATE_TO_ORIGIN`). |
 | `verbose`            | `boolean` | `true`  | Enable console logging during loading.                             |
+| `signal`             | `AbortSignal` | -   | Abort/cancel loading.                                              |
 
 #### Returns
 
@@ -351,23 +407,93 @@ interface ProjectInfoResult {
 
 ---
 
+## Geometry Preparation Layer (ifcModelPreparation.ts)
+
+Pure geometry transformation + merge layer, independent from Babylon scene creation.
+
+### prepareIfcModelGeometry
+
+```typescript
+function prepareIfcModelGeometry(model: RawIfcModel, options?: GeometryPreparationOptions): PreparedIfcModel;
+```
+
+This API transforms raw IFC parts into transferable typed arrays and applies merge strategies before `buildIfcModel`.
+
+### GeometryPreparationOptions
+
+```typescript
+type GeometryMergeMode = "none" | "by-express-color" | "by-color" | "two-material";
+type GeometryPreparationTier = "low" | "medium" | "high" | "explicit" | "legacy" | "renderOnly";
+
+interface AutoMergeStrategy {
+  lowMaxParts: number;
+  mediumMaxParts: number;
+  lowMode?: Exclude<GeometryMergeMode, "none">; // default: "by-express-color"
+  mediumMode?: Exclude<GeometryMergeMode, "none">; // default: "by-color"
+  highMode?: Exclude<GeometryMergeMode, "none">; // default: "two-material"
+}
+
+interface GeometryPreparationOptions {
+  mergeMeshes?: boolean; // legacy switch: false => "none", true => "by-express-color"
+  mergeMode?: GeometryMergeMode;
+  autoMergeStrategy?: AutoMergeStrategy;
+  generateNormals?: boolean; // default: false
+  includeElementMap?: boolean; // default: true
+  maxTrianglesPerMesh?: number;
+  maxVerticesPerMesh?: number;
+  profile?: "renderOnly";
+  signal?: AbortSignal;
+}
+```
+
+### PreparedIfcModel
+
+```typescript
+interface PreparedIfcModel {
+  modelID: number;
+  sourcePartCount: number;
+  invalidPartCount: number;
+  mergedGroupCount: number;
+  mergeMode: GeometryMergeMode;
+  telemetry: PreparedIfcTelemetry;
+  meshes: PreparedIfcMeshData[];
+}
+```
+
+### PreparedIfcTelemetry
+
+```typescript
+interface PreparedIfcTelemetry {
+  tier: GeometryPreparationTier;
+  opaqueMeshCount: number;
+  transparentMeshCount: number;
+  elementRangeCount: number;
+  elementMapBytes: number;
+  geometryBytes: number;
+  transferBytes: number; // worker transfer accounting
+  includeElementMap: boolean;
+}
+```
+
+---
+
 ## Rendering Layer (ifcModel.ts)
 
 All Babylon.js scene construction. **Zero web-ifc dependencies.**
 
 ### buildIfcModel
 
-Build a Babylon.js scene from raw IFC model data.
+Build a Babylon.js scene from raw or prepared IFC geometry data.
 
 ```typescript
-function buildIfcModel(model: RawIfcModel, scene: Scene, options?: SceneBuildOptions): SceneBuildResult;
+function buildIfcModel(model: RawIfcModel | PreparedIfcModel, scene: Scene, options?: SceneBuildOptions): SceneBuildResult;
 ```
 
 #### Parameters
 
 | Parameter | Type                | Required | Description                               |
 | --------- | ------------------- | -------- | ----------------------------------------- |
-| `model`   | `RawIfcModel`       | Yes      | Raw model data from `loadIfcModel`.       |
+| `model`   | `RawIfcModel \| PreparedIfcModel` | Yes | Raw model (`loadIfcModel`) or prepared model (`loadPreparedIfcModel`). |
 | `scene`   | `Scene`             | Yes      | Babylon.js scene instance.                |
 | `options` | `SceneBuildOptions` | No       | Configuration options for scene building. |
 
@@ -526,6 +652,18 @@ console.log(`Model centered with offset: ${offset}`);
 
 ---
 
+### resolveExpressIDFromMeshPick
+
+Resolve expressID from a picked mesh and `faceId`, including merged prepared meshes that use `elementRanges`.
+
+```typescript
+function resolveExpressIDFromMeshPick(mesh: AbstractMesh, faceId: number | null | undefined): number | null;
+```
+
+Use this for accurate picking in `by-color` and `two-material` modes where one mesh can contain multiple IFC elements.
+
+---
+
 ### Types (ifcModel)
 
 #### SceneBuildOptions
@@ -583,6 +721,16 @@ interface BoundsInfo {
   center: Vector3; // Center point
   size: Vector3; // Size (width, height, depth)
   diagonal: number; // Diagonal length
+}
+```
+
+#### IfcPreparedMeshMetadata
+
+```typescript
+interface IfcPreparedMeshMetadata {
+  modelID: number;
+  expressID: number; // -1 for merged multi-element meshes
+  elementRanges?: PreparedIfcElementRange[]; // face range -> expressID mapping
 }
 ```
 
@@ -653,6 +801,7 @@ All meshes created by `buildIfcModel` have metadata attached:
 mesh.metadata = {
   expressID: number, // IFC element express ID
   modelID: number, // IFC model ID
+  elementRanges?: PreparedIfcElementRange[], // present for merged prepared meshes
 };
 ```
 
@@ -661,7 +810,9 @@ Use this for element picking and querying:
 ```typescript
 scene.onPointerDown = (evt, pickResult) => {
   if (pickResult.hit && pickResult.pickedMesh?.metadata) {
-    const { expressID, modelID } = pickResult.pickedMesh.metadata;
+    const modelID = pickResult.pickedMesh.metadata.modelID;
+    const expressID = resolveExpressIDFromMeshPick(pickResult.pickedMesh, pickResult.faceId);
+    if (expressID === null) return;
     const element = ifcAPI.GetLine(modelID, expressID, true);
     const typeName = ifcAPI.GetNameFromTypeCode(element.type);
     console.log(`Picked: ${typeName} (ID: ${expressID})`);

@@ -36,9 +36,11 @@ npm run test:coverage
 
 After running `npm run dev`, open:
 
-| URL                    | Entry Point | Description                                      |
-| ---------------------- | ----------- | ------------------------------------------------ |
-| http://localhost:5173/ | `main.ts`   | Uses low-level two-step API (ifcInit + ifcModel) |
+| URL                                       | Entry Point            | Description                                      |
+| ----------------------------------------- | ---------------------- | ------------------------------------------------ |
+| http://localhost:5173/                    | `src/main.ts`          | App viewer using worker-prepared geometry flow   |
+| http://localhost:5173/test-npm/index.html | `test-npm/main.ts`     | NPM package integration test page                |
+| http://localhost:5173/test-speed/index.html | `test-speed/main.ts` | Benchmark (main-thread vs worker, all merge modes) |
 
 ## Features
 
@@ -48,7 +50,7 @@ After running `npm run dev`, open:
 - **Intelligent Merging:** Automatically merges meshes with same material while preserving metadata
 - **Structured Logging:** Typed logging helpers with optional IFC context (`modelID`, `expressID`, `geometryExpressID`)
 - **Camera Framing:** Automatically positions camera to view the entire model
-- **Inspector:** Built-in Babylon.js Inspector for debugging
+- **Inspector (Dev only):** Babylon.js Inspector is loaded dynamically only in dev mode
 - **Keyboard Shortcuts:** Ctrl+I (or Cmd+I on Mac) toggles the inspector, works across all keyboard layouts
 - **Memory Management:** Proper cleanup when loading new files
 
@@ -76,7 +78,7 @@ All Babylon.js scene construction. **Zero web-ifc dependencies.**
 
 ### Application Layer
 
-- `src/main.ts` - uses low-level two-step API (ifcInit + ifcModel)
+- `src/main.ts` - uses worker + prepared geometry (`loadPreparedIfcModel`) and Babylon build step
 
 ### Shared Utilities (`src/logging.ts`)
 
@@ -120,13 +122,47 @@ const { meshes, rootNode, stats } = buildIfcModel(model, scene, {
 import { createIfcLoader } from "babylon-ifc-loader";
 
 const ifc = createIfcLoader({ useWorker: true }); // false = main-thread
-await ifc.init("/", WebIFC.LogLevel.LOG_LEVEL_ERROR);
+await ifc.init("/"); // Optional second arg: WebIFC.LogLevel
 
 const model = await ifc.loadIfcModel("/test.ifc", {
   coordinateToOrigin: true,
   verbose: true,
 });
 ```
+
+### Prepared Geometry API (recommended)
+
+Use this path to do IFC parse + geometry preparation off-thread (when `useWorker: true`), then build Babylon meshes on main thread:
+
+```typescript
+const ifc = createIfcLoader({ useWorker: true });
+await ifc.init("/");
+
+const prepared = await ifc.loadPreparedIfcModel(
+  "/test.ifc",
+  {
+    coordinateToOrigin: true,
+    keepModelOpen: false,
+  },
+  {
+    autoMergeStrategy: {
+      lowMaxParts: 1500,
+      mediumMaxParts: 5000,
+      lowMode: "by-express-color",
+      mediumMode: "by-color",
+      highMode: "two-material",
+    },
+  },
+);
+
+const result = buildIfcModel(prepared, scene, { usePBRMaterials: true });
+```
+
+`renderOnly: true` is available for visualization-only flows and forces:
+
+- `mergeMode: "two-material"`
+- `keepModelOpen: false`
+- `includeElementMap: false`
 
 ### Load from URL or File
 
@@ -178,6 +214,14 @@ npx vite . --open test-npm/index.html
 
 The `test-npm/` folder contains a test page that imports from `babylon-ifc-loader`. Since the package's `main` entry points to `dist-npm/index.js`, Vite resolves the import from the built output.
 
+### Benchmarking Merge Modes and Worker/Main-Thread
+
+Open `test-speed/index.html` to benchmark:
+
+- Backends: `main-thread` and `worker`
+- Merge modes: `by-express-color`, `by-color`, `two-material`
+- Metrics: load ms, build ms, total ms, mesh/material count, memory estimate, transfer/map bytes, opaque/transparent counts
+
 **Testing from another project:**
 
 To test the package in a different project:
@@ -204,6 +248,8 @@ The project uses [Vitest](https://vitest.dev/) for unit testing with the followi
 | -------------------------- | ------------------------------------- |
 | `initializeWebIFC.test.ts` | Tests for web-ifc initialization      |
 | `loadIfcModel.test.ts`     | Tests for IFC model loading           |
+| `ifcLoader.test.ts`        | Tests for unified loader and renderOnly flow |
+| `ifcModelPreparation.test.ts` | Tests for merge tiers/profiles and telemetry |
 | `closeIfcModel.test.ts`    | Tests for model cleanup               |
 | `getProjectInfo.test.ts`   | Tests for project metadata extraction |
 | `buildIfcModel.test.ts`    | Tests for Babylon.js scene building   |
@@ -247,8 +293,12 @@ describe("myFunction", () => {
 
 ```
 src/
-|-- main.ts          - app entry (two-step API: ifcInit + ifcModel)
+|-- main.ts          - app entry (worker-prepared load + Babylon build)
 |-- ifcInit.ts       - IFC data layer (web-ifc only)
+|-- ifcLoader.ts     - unified loader facade (worker or main-thread)
+|-- ifcWorkerClient.ts - worker client transport
+|-- ifc.worker.ts    - worker runtime for web-ifc + preparation
+|-- ifcModelPreparation.ts - merge strategies and telemetry
 |-- ifcModel.ts      - rendering layer (Babylon.js only)
 |-- style.css        - basic styling
 `-- __tests__/       - unit tests
@@ -274,10 +324,12 @@ Root
 ## Materials, Merging, and Performance
 
 - Materials are `StandardMaterial` per unique RGBA color, configurable `backFaceCulling`, incremental `zOffset` to mitigate z-fighting
-- Meshes are merged per (expressID + color)
+- Prepared geometry supports merge modes: `by-express-color`, `by-color`, `two-material`, and `none`
+- Optional auto-merge tiers via `autoMergeStrategy` (`low`, `medium`, `high`)
 - Metadata (`expressID`, `modelID`) preserved on merged meshes
+- For merged prepared meshes, `elementRanges` can preserve per-face expressID mapping for picking
 - Material metadata includes source color as `material.metadata.color` with `{ r, g, b, a }` (or `null`)
-- Stats for counts, triangles, materials, and build time are computed
+- Telemetry includes tier, opaque/transparent counts, map bytes, geometry bytes, and transfer bytes
 
 ### Custom Merging Strategy
 
