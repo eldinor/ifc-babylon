@@ -112,20 +112,32 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
   try {
     switch (message.type) {
       case "init": {
+        console.log("[ifc-worker] init start", { wasmPath: message.wasmPath, logLevel: message.logLevel });
         ifcAPI = await initializeWebIFC(message.wasmPath, message.logLevel);
+        console.log("[ifc-worker] init ok");
         postSuccess(message.id, null);
         return;
       }
       case "load": {
         const api = ensureIfcAPI();
+        console.log("[ifc-worker] load start", {
+          sourceKind: message.source.kind,
+          coordinateToOrigin: message.options.coordinateToOrigin ?? true,
+        });
         const source = message.source.kind === "url" ? message.source.url : message.source.data;
         const model = await loadIfcModel(api, source, message.options);
+        console.log("[ifc-worker] load ok", {
+          modelID: model.modelID,
+          partCount: model.rawStats.partCount,
+          triangleCount: model.rawStats.triangleCount,
+        });
         postSuccess(message.id, model, collectModelTransferables(model));
         return;
       }
       case "closeModel": {
         const api = ensureIfcAPI();
         closeIfcModel(api, message.modelID);
+        console.log("[ifc-worker] closeModel", { modelID: message.modelID });
         postSuccess(message.id, null);
         return;
       }
@@ -149,6 +161,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
         return;
       }
       case "dispose": {
+        console.log("[ifc-worker] dispose");
         ifcAPI = null;
         postSuccess(message.id, null);
         return;
