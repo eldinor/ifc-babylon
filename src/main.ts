@@ -1,5 +1,5 @@
 import * as WebIFC from "web-ifc";
-import { buildIfcModel, disposeIfcModel, getModelBounds } from "./ifcModel";
+import { buildIfcModel, disposeIfcModel, getModelBounds, resolveExpressIDFromMeshPick } from "./ifcModel";
 import { IfcWorkerClient } from "./ifcWorkerClient";
 import {
   Engine,
@@ -35,14 +35,13 @@ let currentRootNode: TransformNode | null = null;
 let currentHighlightedMesh: AbstractMesh | null = null;
 
 interface IfcMeshMetadata {
-  expressID: number;
   modelID: number;
 }
 
 function isIfcMeshMetadata(metadata: unknown): metadata is IfcMeshMetadata {
   if (typeof metadata !== "object" || metadata === null) return false;
   const value = metadata as Partial<IfcMeshMetadata>;
-  return typeof value.expressID === "number" && typeof value.modelID === "number";
+  return typeof value.modelID === "number";
 }
 
 try {
@@ -75,8 +74,17 @@ const setupPickingHandler = (scene: Scene, worker: IfcWorkerClient) => {
       const pickedMesh = pickResult.pickedMesh;
       if (isIfcMeshMetadata(pickedMesh.metadata)) {
         const metadata = pickedMesh.metadata;
-        const expressID = metadata.expressID;
         const modelID = metadata.modelID;
+        const expressID = resolveExpressIDFromMeshPick(pickedMesh, pickResult.faceId);
+
+        if (expressID === null) {
+          console.warn("Could not resolve expressID from picked mesh/face");
+          return;
+        }
+        if (modelID < 0) {
+          console.warn("Model is closed; IFC element queries are unavailable.");
+          return;
+        }
 
         console.log(`\nPicked IFC Element:`);
         console.log(`  Mesh: ${pickedMesh.name}`);
@@ -144,6 +152,7 @@ const hideUpperTextAndClearHighlight = () => {
  */
 const showProjectInfo = async (modelID: number) => {
   if (!ifcWorker) return;
+  if (modelID < 0) return;
 
   const projectInfo = await ifcWorker.getProjectInfo(modelID);
   const upperText = document.getElementById("upper-text");
@@ -232,11 +241,26 @@ const loadIfc = async (scene: Scene, source: string | File) => {
 
   console.log(`\nLoading IFC file...`);
 
-  // Step 1: Load raw IFC model data (web-ifc only)
-  const model = await ifcWorker.loadIfcModel(source, {
-    coordinateToOrigin: true,
-    verbose: true,
-  });
+  // Step 1: Load and prepare IFC model geometry in worker
+  const model = await ifcWorker.loadPreparedIfcModel(
+    source,
+    {
+      coordinateToOrigin: true,
+      verbose: true,
+    },
+    {
+      generateNormals: false,
+      maxTrianglesPerMesh: 200000,
+      maxVerticesPerMesh: 300000,
+      autoMergeStrategy: {
+        lowMaxParts: 1500,
+        mediumMaxParts: 5000,
+        lowMode: "by-express-color",
+        mediumMode: "by-color",
+        highMode: "two-material",
+      },
+    },
+  );
 
   // Step 2: Build Babylon.js scene (Babylon only)
   const { meshes, rootNode, stats } = buildIfcModel(model, scene, {
@@ -250,7 +274,10 @@ const loadIfc = async (scene: Scene, source: string | File) => {
   });
 
   console.log(`\nIFC loaded successfully`);
-  console.log(`  ${meshes.length} meshes, ${model.rawStats.triangleCount.toLocaleString()} triangles`);
+  console.log(`  ${meshes.length} meshes`);
+  console.log(
+    `  mode=${model.mergeMode}, tier=${model.telemetry.tier}, opaque=${model.telemetry.opaqueMeshCount}, transparent=${model.telemetry.transparentMeshCount}, mapBytes=${model.telemetry.elementMapBytes}, transferBytes=${model.telemetry.transferBytes}`,
+  );
 
   return { meshes, rootNode, modelID: model.modelID, stats };
 };
@@ -306,7 +333,9 @@ const createScene = async (): Promise<Scene> => {
       console.log(`  Build time: ${stats.buildTimeMs.toFixed(2)}ms`);
 
       // Show project info in upper text
-      await showProjectInfo(modelID);
+      if (modelID >= 0) {
+        await showProjectInfo(modelID);
+      }
 
       // Adjust camera to view the loaded model
       if (currentIfcMeshes.length > 0) {
@@ -394,7 +423,7 @@ if (ifcWorker) {
         disposeIfcModel(scene);
 
         // Close the IFC model and free WASM memory
-        if (currentModelID !== null) {
+        if (currentModelID !== null && currentModelID >= 0) {
           await ifcWorker.closeIfcModel(currentModelID);
         }
 
@@ -420,7 +449,9 @@ if (ifcWorker) {
       }
 
       // Show project info in upper text
-      await showProjectInfo(modelID);
+      if (modelID >= 0) {
+        await showProjectInfo(modelID);
+      }
 
       // Adjust camera to view the loaded model
       const camera = scene.activeCamera as ArcRotateCamera;
@@ -448,33 +479,35 @@ const resetCamera = () => {
   }
 };
 
-// Track inspector state for toggle functionality
-let inspectorLoaded = false;
+if (import.meta.env.DEV) {
+  // Track inspector state for toggle functionality
+  let inspectorLoaded = false;
 
-// Add Ctrl+I keyboard shortcut to toggle Babylon Inspector
-window.addEventListener("keydown", async (e) => {
-  // Check for Ctrl+I (or Cmd+I on Mac) - use e.code for keyboard layout independence
-  if ((e.ctrlKey || e.metaKey) && e.code === "KeyI") {
-    e.preventDefault();
+  // Add Ctrl+I keyboard shortcut to toggle Babylon Inspector
+  window.addEventListener("keydown", async (e) => {
+    // Check for Ctrl+I (or Cmd+I on Mac) - use e.code for keyboard layout independence
+    if ((e.ctrlKey || e.metaKey) && e.code === "KeyI") {
+      e.preventDefault();
 
-    // Dynamically import the inspector if not already loaded
-    if (!inspectorLoaded) {
-      try {
-        await import("@babylonjs/inspector");
-        inspectorLoaded = true;
-      } catch (error) {
-        console.error("Failed to load Babylon Inspector:", error);
-        return;
+      // Dynamically import the inspector if not already loaded
+      if (!inspectorLoaded) {
+        try {
+          await import("@babylonjs/inspector");
+          inspectorLoaded = true;
+        } catch (error) {
+          console.error("Failed to load Babylon Inspector:", error);
+          return;
+        }
+      }
+
+      // Toggle inspector visibility using scene.debugLayer
+      if (scene.debugLayer.isVisible()) {
+        scene.debugLayer.hide();
+        console.log("Inspector hidden");
+      } else {
+        await scene.debugLayer.show({ embedMode: false });
+        console.log("Inspector shown");
       }
     }
-
-    // Toggle inspector visibility using scene.debugLayer
-    if (scene.debugLayer.isVisible()) {
-      scene.debugLayer.hide();
-      console.log("Inspector hidden");
-    } else {
-      await scene.debugLayer.show({ embedMode: false });
-      console.log("Inspector shown");
-    }
-  }
-});
+  });
+}

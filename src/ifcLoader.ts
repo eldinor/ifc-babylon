@@ -1,12 +1,24 @@
 import * as WebIFC from "web-ifc";
 import { closeIfcModel, getProjectInfo, initializeWebIFC, loadIfcModel } from "./ifcInit";
-import type { IfcInitOptions, ProjectInfoResult, RawIfcModel } from "./ifcInit";
+import type { ProjectInfoResult, RawIfcModel } from "./ifcInit";
 import { IfcWorkerClient } from "./ifcWorkerClient";
-import type { ElementDataResult } from "./ifcWorkerClient";
+import type { ElementDataResult, IfcWorkerLoadOptions } from "./ifcWorkerClient";
+import { prepareIfcModelGeometry } from "./ifcModelPreparation";
+import type { GeometryPreparationOptions, PreparedIfcModel } from "./ifcModelPreparation";
+
+export interface LoadPreparedIfcModelOptions extends IfcWorkerLoadOptions {
+  keepModelOpen?: boolean;
+  renderOnly?: boolean;
+}
 
 export interface IfcLoader {
   init(wasmPath?: string, logLevel?: WebIFC.LogLevel): Promise<void>;
-  loadIfcModel(source: string | File, options?: Omit<IfcInitOptions, "signal">): Promise<RawIfcModel>;
+  loadIfcModel(source: string | File, options?: IfcWorkerLoadOptions): Promise<RawIfcModel>;
+  loadPreparedIfcModel(
+    source: string | File,
+    options?: LoadPreparedIfcModelOptions,
+    prepareOptions?: GeometryPreparationOptions,
+  ): Promise<PreparedIfcModel>;
   closeIfcModel(modelID: number): Promise<void>;
   getProjectInfo(modelID: number): Promise<ProjectInfoResult>;
   getElementData(modelID: number, expressID: number): Promise<ElementDataResult>;
@@ -24,8 +36,33 @@ class MainThreadIfcLoader implements IfcLoader {
     this.ifcAPI = await initializeWebIFC(wasmPath, logLevel);
   }
 
-  async loadIfcModel(source: string | File, options: Omit<IfcInitOptions, "signal"> = {}): Promise<RawIfcModel> {
-    return loadIfcModel(this.ensureIfcAPI(), source, options);
+  async loadIfcModel(source: string | File, options: IfcWorkerLoadOptions = {}): Promise<RawIfcModel> {
+    const { onProgress: _onProgress, ...ifcOptions } = options;
+    return loadIfcModel(this.ensureIfcAPI(), source, ifcOptions);
+  }
+
+  async loadPreparedIfcModel(
+    source: string | File,
+    options: LoadPreparedIfcModelOptions = {},
+    prepareOptions: GeometryPreparationOptions = {},
+  ): Promise<PreparedIfcModel> {
+    const { keepModelOpen = true, renderOnly = false, onProgress: _onProgress, ...ifcOptions } = options;
+    const effectiveKeepModelOpen = renderOnly ? false : keepModelOpen;
+    const effectivePrepareOptions = renderOnly
+      ? {
+          ...prepareOptions,
+          mergeMode: "two-material" as const,
+          includeElementMap: false,
+          profile: "renderOnly" as const,
+        }
+      : prepareOptions;
+    const model = await this.loadIfcModel(source, ifcOptions);
+    const prepared = prepareIfcModelGeometry(model, { ...effectivePrepareOptions, signal: ifcOptions.signal });
+    if (!effectiveKeepModelOpen) {
+      closeIfcModel(this.ensureIfcAPI(), model.modelID);
+      return { ...prepared, modelID: -1 };
+    }
+    return prepared;
   }
 
   async closeIfcModel(modelID: number): Promise<void> {

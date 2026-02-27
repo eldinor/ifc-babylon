@@ -1,11 +1,7 @@
-// ============================================================================
-// Test file for npm package - imports from babylon-ifc-loader via npm link
-// ============================================================================
-
 import * as WebIFC from "web-ifc";
 import { createIfcLoader } from "babylon-ifc-loader";
 import type { IfcLoader } from "babylon-ifc-loader";
-import { buildIfcModel, disposeIfcModel, getModelBounds } from "babylon-ifc-loader";
+import { buildIfcModel, disposeIfcModel, getModelBounds, resolveExpressIDFromMeshPick } from "babylon-ifc-loader";
 import {
   Engine,
   Scene,
@@ -19,6 +15,7 @@ import {
 
 const VIEWER_CONFIG = {
   overlayAlpha: 0.3,
+  environmentTextureLevel: 0.7,
   camera: {
     radiusFromDiagonalMultiplier: 1.5,
     lowerRadiusFromDiagonalMultiplier: 0.3,
@@ -34,25 +31,35 @@ let currentRootNode: TransformNode | null = null;
 let currentHighlightedMesh: AbstractMesh | null = null;
 
 interface IfcMeshMetadata {
-  expressID: number;
   modelID: number;
 }
 
 function isIfcMeshMetadata(metadata: unknown): metadata is IfcMeshMetadata {
   if (typeof metadata !== "object" || metadata === null) return false;
   const value = metadata as Partial<IfcMeshMetadata>;
-  return typeof value.expressID === "number" && typeof value.modelID === "number";
+  return typeof value.modelID === "number";
 }
 
-let useWorker = true;
+async function initLoaderWithFallback(loader: IfcLoader): Promise<void> {
+  const wasmPaths = ["/", "/node_modules/web-ifc/"];
+  let lastError: unknown = null;
+
+  for (const wasmPath of wasmPaths) {
+    try {
+      await loader.init(wasmPath, WebIFC.LogLevel.LOG_LEVEL_ERROR);
+      return;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError;
+}
 
 try {
-  // In npm-link test mode, resolve wasm from node_modules.
-  ifcLoader = createIfcLoader({ useWorker: useWorker });
-  await ifcLoader.init("/node_modules/web-ifc/", WebIFC.LogLevel.LOG_LEVEL_ERROR);
-  if (useWorker) {
-    console.log("web-ifc worker initialized successfully");
-  }
+  ifcLoader = createIfcLoader({ useWorker: true });
+  await initLoaderWithFallback(ifcLoader);
+  console.log("web-ifc worker initialized successfully");
 } catch (error) {
   console.error("Failed to initialize web-ifc worker:", error);
   ifcLoader = null;
@@ -69,7 +76,17 @@ const setupPickingHandler = (scene: Scene, loader: IfcLoader) => {
     if (pickResult.hit && pickResult.pickedMesh) {
       const pickedMesh = pickResult.pickedMesh;
       if (isIfcMeshMetadata(pickedMesh.metadata)) {
-        const { expressID, modelID } = pickedMesh.metadata;
+        const modelID = pickedMesh.metadata.modelID;
+        const expressID = resolveExpressIDFromMeshPick(pickedMesh, pickResult.faceId);
+
+        if (expressID === null) {
+          console.warn("Could not resolve expressID from picked mesh/face");
+          return;
+        }
+        if (modelID < 0) {
+          console.warn("Model is closed; IFC element queries are unavailable.");
+          return;
+        }
 
         try {
           const { element, typeName } = await loader.getElementData(modelID, expressID);
@@ -115,6 +132,8 @@ const hideUpperTextAndClearHighlight = () => {
 
 const showProjectInfo = async (modelID: number) => {
   if (!ifcLoader) return;
+  if (modelID < 0) return;
+
   const projectInfo = await ifcLoader.getProjectInfo(modelID);
   const upperText = document.getElementById("upper-text");
 
@@ -147,10 +166,25 @@ const adjustCameraToMeshes = (meshes: AbstractMesh[], camera: ArcRotateCamera) =
 const loadIfc = async (scene: Scene, source: string | File) => {
   if (!ifcLoader) throw new Error("IFC loader not initialized");
 
-  const model = await ifcLoader.loadIfcModel(source, {
-    coordinateToOrigin: true,
-    verbose: true,
-  });
+  const model = await ifcLoader.loadPreparedIfcModel(
+    source,
+    {
+      coordinateToOrigin: true,
+      verbose: true,
+    },
+    {
+      generateNormals: false,
+      maxTrianglesPerMesh: 200000,
+      maxVerticesPerMesh: 300000,
+      autoMergeStrategy: {
+        lowMaxParts: 1500,
+        mediumMaxParts: 5000,
+        lowMode: "by-express-color",
+        mediumMode: "by-color",
+        highMode: "two-material",
+      },
+    },
+  );
 
   const { meshes, rootNode, stats } = buildIfcModel(model, scene, {
     autoCenter: true,
@@ -161,6 +195,12 @@ const loadIfc = async (scene: Scene, source: string | File) => {
     freezeAfterBuild: true,
     usePBRMaterials: true,
   });
+
+  console.log(`\nIFC loaded successfully`);
+  console.log(`  ${meshes.length} meshes`);
+  console.log(
+    `  mode=${model.mergeMode}, tier=${model.telemetry.tier}, opaque=${model.telemetry.opaqueMeshCount}, transparent=${model.telemetry.transparentMeshCount}, mapBytes=${model.telemetry.elementMapBytes}, transferBytes=${model.telemetry.transferBytes}`,
+  );
 
   return { meshes, rootNode, modelID: model.modelID, stats };
 };
@@ -174,17 +214,32 @@ const createScene = async (): Promise<Scene> => {
   camera.wheelPrecision = 10;
 
   const light = new HemisphericLight("light", new Vector3(0, 1, 0), scene);
-  light.intensity = 0.7;
-  light.setEnabled(true);
+  light.intensity = 0.01;
+  light.setEnabled(false);
+
+  if (!scene.environmentTexture) {
+    scene.createDefaultEnvironment({ createGround: false, createSkybox: false });
+    scene.environmentTexture!.level = VIEWER_CONFIG.environmentTextureLevel;
+  }
 
   if (ifcLoader) {
     setupPickingHandler(scene, ifcLoader);
     try {
-      const { meshes, modelID, rootNode } = await loadIfc(scene, "/test.ifc");
+      const { meshes, modelID, rootNode, stats } = await loadIfc(scene, "/test.ifc");
       currentIfcMeshes = meshes;
       currentModelID = modelID;
       currentRootNode = rootNode;
-      await showProjectInfo(modelID);
+
+      if (rootNode) {
+        console.log(`  Model root node: ${rootNode.name} with ${rootNode.getChildMeshes().length} child meshes`);
+      }
+
+      console.log(`Loaded ${currentIfcMeshes.length} IFC meshes (Model ID: ${modelID})`);
+      console.log(`  Build time: ${stats.buildTimeMs.toFixed(2)}ms`);
+
+      if (modelID >= 0) {
+        await showProjectInfo(modelID);
+      }
       adjustCameraToMeshes(meshes, camera);
     } catch (error) {
       console.error("Failed to load initial IFC file:", error);
@@ -236,7 +291,7 @@ if (ifcLoader) {
     try {
       if (currentIfcMeshes.length > 0 || currentModelID !== null || currentRootNode !== null) {
         disposeIfcModel(scene);
-        if (currentModelID !== null && ifcLoader) {
+        if (currentModelID !== null && currentModelID >= 0 && ifcLoader) {
           await ifcLoader.closeIfcModel(currentModelID);
         }
         currentIfcMeshes = [];
@@ -245,14 +300,20 @@ if (ifcLoader) {
       }
 
       hideUpperTextAndClearHighlight();
-      const { meshes, modelID, rootNode } = await loadIfc(scene, file);
+      const { meshes, modelID, rootNode, stats } = await loadIfc(scene, file);
       currentIfcMeshes = meshes;
       currentModelID = modelID;
       currentRootNode = rootNode;
-      await showProjectInfo(modelID);
+
+      if (modelID >= 0) {
+        await showProjectInfo(modelID);
+      }
 
       const camera = scene.activeCamera as ArcRotateCamera;
       if (camera) adjustCameraToMeshes(meshes, camera);
+
+      console.log(`Successfully loaded ${file.name}`);
+      console.log(`  Statistics: ${meshes.length} meshes, ${stats.buildTimeMs.toFixed(2)}ms\n`);
     } catch (error) {
       console.error("Failed to load IFC file:", error);
       alert(`Failed to load IFC file: ${error}`);
@@ -260,23 +321,25 @@ if (ifcLoader) {
   });
 }
 
-let inspectorLoaded = false;
-window.addEventListener("keydown", async (e) => {
-  if ((e.ctrlKey || e.metaKey) && e.code === "KeyI") {
-    e.preventDefault();
-    if (!inspectorLoaded) {
-      try {
-        await import("@babylonjs/inspector");
-        inspectorLoaded = true;
-      } catch (error) {
-        console.error("Failed to load Babylon Inspector:", error);
-        return;
+if (import.meta.env.DEV) {
+  let inspectorLoaded = false;
+  window.addEventListener("keydown", async (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.code === "KeyI") {
+      e.preventDefault();
+      if (!inspectorLoaded) {
+        try {
+          await import("@babylonjs/inspector");
+          inspectorLoaded = true;
+        } catch (error) {
+          console.error("Failed to load Babylon Inspector:", error);
+          return;
+        }
+      }
+      if (scene.debugLayer.isVisible()) {
+        scene.debugLayer.hide();
+      } else {
+        await scene.debugLayer.show({ embedMode: false });
       }
     }
-    if (scene.debugLayer.isVisible()) {
-      scene.debugLayer.hide();
-    } else {
-      await scene.debugLayer.show({ embedMode: false });
-    }
-  }
-});
+  });
+}

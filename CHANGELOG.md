@@ -4,7 +4,47 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
- - No changes yet.
+### Added
+
+- Prepared geometry tuning and profiles:
+  - `loadPreparedIfcModel(...)` flow in unified loader.
+  - `GeometryMergeMode`: `none`, `by-express-color`, `by-color`, `two-material`.
+  - Auto tier strategy with `lowMaxParts` / `mediumMaxParts`.
+  - `renderOnly` profile forcing:
+    - `mergeMode: "two-material"`
+    - `keepModelOpen: false`
+    - `includeElementMap: false`
+- Telemetry fields for prepared models:
+  - `tier`, `opaqueMeshCount`, `transparentMeshCount`
+  - `elementRangeCount`, `elementMapBytes`, `geometryBytes`, `transferBytes`
+  - `includeElementMap`
+- Picking helper for merged prepared meshes:
+  - `resolveExpressIDFromMeshPick(mesh, faceId)`
+
+### Changed
+
+- `test-speed` benchmark now compares both backends:
+  - `main-thread` and `worker`
+  - across merge modes: `by-express-color`, `by-color`, `two-material`
+  - with tabular output including filename/filesize and memory/transfer/map metrics.
+- App/benchmark presentation updates:
+  - dark theme styling applied to app overlays and benchmark page.
+  - benchmark panel width increased for full table visibility.
+- Inspector usage in app is dev-only via dynamic import (`@babylonjs/inspector` excluded from production bundle).
+
+### Tests
+
+- Added `src/__tests__/ifcModelPreparation.test.ts`:
+  - tier resolution, renderOnly behavior, merge grouping, and element-map telemetry.
+- Added `src/__tests__/ifcLoader.test.ts`:
+  - unified loader behavior, `renderOnly`, `keepModelOpen`, and worker/main loader selection.
+
+### Docs
+
+- Updated `readme.md`:
+  - worker/main benchmark page, prepared geometry usage, renderOnly notes, and new tests list.
+- Updated `API.md`:
+  - `loadPreparedIfcModel`, worker progress options, geometry preparation layer, telemetry, and merged-picking docs.
 
 ## [2.1.0]
 

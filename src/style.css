@@ -8,6 +8,9 @@ html, body {
   width: 100%;
   height: 100%;
   overflow: hidden;
+  color-scheme: dark;
+  background: radial-gradient(circle at top, #1a2533 0%, #0b1118 55%, #070b10 100%);
+  color: #dbe6f5;
 }
 
 #renderCanvas {
@@ -28,7 +31,8 @@ html, body {
   font-size: 16px;
   font-weight: 500;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(10, 16, 24, 0.8);
+  border: 1px solid rgba(119, 152, 196, 0.25);
   padding: 10px 20px;
   border-radius: 6px;
   pointer-events: none;
@@ -49,16 +53,21 @@ html, body {
   pointer-events: none;
   z-index: 1000;
   text-align: center;
+  background: rgba(10, 16, 24, 0.75);
+  border: 1px solid rgba(119, 152, 196, 0.2);
+  border-radius: 6px;
+  padding: 8px 14px;
+  backdrop-filter: blur(5px);
 }
 
 .bottom-text a {
-  color: #4a9eff;
+  color: #7dc2ff;
   text-decoration: none;
   pointer-events: auto;
   transition: color 0.2s ease;
 }
 
 .bottom-text a:hover {
-  color: #6bb3ff;
+  color: #a6d8ff;
   text-decoration: underline;
 }

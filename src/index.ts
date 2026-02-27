@@ -9,9 +9,20 @@ export { createIfcLoader } from "./ifcLoader";
 
 export type { RawIfcModel, RawGeometryPart, IfcInitOptions, ProjectInfoResult } from "./ifcInit";
 export type { IfcLoader, CreateIfcLoaderOptions } from "./ifcLoader";
-export type { ElementDataResult } from "./ifcWorkerClient";
+export type { ElementDataResult, IfcWorkerProgressEvent, IfcWorkerLoadOptions, LoadPreparedIfcModelOptions } from "./ifcWorkerClient";
+export { prepareIfcModelGeometry } from "./ifcModelPreparation";
+export type {
+  AutoMergeStrategy,
+  GeometryMergeMode,
+  GeometryPreparationTier,
+  GeometryPreparationOptions,
+  PreparedIfcElementRange,
+  PreparedIfcModel,
+  PreparedIfcMeshData,
+  PreparedIfcTelemetry,
+} from "./ifcModelPreparation";
 
 // Rendering Layer (Babylon.js only, zero web-ifc dependencies)
-export { buildIfcModel, disposeIfcModel, getModelBounds, centerModelAtOrigin } from "./ifcModel";
+export { buildIfcModel, disposeIfcModel, getModelBounds, centerModelAtOrigin, resolveExpressIDFromMeshPick } from "./ifcModel";
 
-export type { SceneBuildOptions, SceneBuildResult, BuildStats, BoundsInfo } from "./ifcModel";
+export type { IfcPreparedMeshMetadata, SceneBuildOptions, SceneBuildResult, BuildStats, BoundsInfo } from "./ifcModel";
